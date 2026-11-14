@@ -147,14 +147,11 @@ async function showProfile(portfolio) {
   }
   if (editing !== portfolio.name) return; // another portfolio was opened while this one loaded
   const prices = Object.fromEntries(tickers.map((t, i) => [t, loaded[i]]));
-  const { points, rebalances } = portfolioSeries(portfolio, prices);
+  const { points } = portfolioSeries(portfolio, prices);
   if (points.length < 3) return say("These holdings have no dates in common, so the portfolio can't be measured.", true);
 
   const count = portfolio.holdings.length;
   $("profile-title").textContent = portfolio.name;
-  $("profile-summary").textContent =
-    `${count} ${count === 1 ? "holding" : "holdings"}. Rebalancing: ${REBALANCE_RULES[portfolio.rebalance].toLowerCase()}` +
-    (portfolio.rebalance === "none" ? "." : `, ${rebalances} ${rebalances === 1 ? "time" : "times"} over the measured period.`);
 
   const sorted = [...portfolio.holdings].sort((a, b) => b.weight - a.weight);
   $("allocation").replaceChildren(

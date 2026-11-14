@@ -30,7 +30,6 @@
   <main>
     <section id="backtester">
       <h1>Backtester</h1>
-      <p class="lede">Compare portfolios and single assets over any period: returns, drawdowns and risk, side by side.</p>
 
       <form id="compare-form">
         <fieldset id="portfolio-picks" hidden>
@@ -77,26 +76,22 @@
             </div>
           </div>
           <div id="returns-chart" class="chart"></div>
-          <p class="hint">Faded bars are partial periods: the selected range starts or ends part-way through them.</p>
         </div>
 
         <div class="block">
           <h2>Drawdowns</h2>
-          <p class="hint">How far each asset sat below its previous peak.</p>
           <div id="drawdown-chart" class="chart chart-short"></div>
         </div>
 
         <div class="block">
           <h2>Statistics</h2>
           <div class="table-scroll"><table id="stats"></table></div>
-          <p class="hint">Volatility, Sharpe, Sortino and beta use daily returns, annualised over 252 trading days. Sharpe and Sortino assume a 0% risk-free rate, which flatters them when interest rates are high. Best and worst year count full calendar years only. Annualised return is shown for periods of a year or more.</p>
         </div>
       </div>
     </section>
 
     <section id="creator">
       <h1>Portfolio creator</h1>
-      <p class="lede">Build a portfolio from stocks, bonds, funds and commodities. Set its weights and rebalancing rule, then compare it in the Backtester.</p>
 
       <form id="portfolio-form" class="panel">
         <div class="field">
@@ -124,7 +119,6 @@
             <input type="number" id="band" min="1" max="50" step="1" value="5">
             <span>percentage points from its target.</span>
           </p>
-          <p class="hint">Rebalancing sells what has grown and buys what has lagged, to return to the target weights. Trading costs and taxes are not modelled.</p>
         </div>
         <div class="row">
           <button type="submit">Save portfolio</button>
@@ -135,7 +129,6 @@
 
       <div id="profile" class="panel" hidden>
         <h2 id="profile-title" class="profile-title"></h2>
-        <p id="profile-summary" class="hint"></p>
         <div class="block">
           <h2>Allocation</h2>
           <div id="allocation" class="allocation"></div>
@@ -154,7 +147,6 @@
 
     <section id="monte-carlo">
       <h1>Monte Carlo</h1>
-      <p class="lede">Run thousands of possible futures for a portfolio to see how often the money runs out, and how it came through past crises.</p>
 
       <form id="mc-form" class="panel">
         <div class="field-grid">
@@ -208,7 +200,6 @@
 
         <div class="block">
           <h2>Past crises</h2>
-          <p class="hint">What actually happened to this portfolio in each crisis, measured from the day the S&amp;P 500 peaked. The last column starts your amount on that day and takes your withdrawals through to the latest data.</p>
           <div class="table-scroll"><table id="mc-crises"></table></div>
         </div>
       </div>
