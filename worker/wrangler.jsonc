@@ -1,0 +1,18 @@
+{
+	"name": "investment-simulator-proxy",
+	"main": "worker.js",
+	"compatibility_date": "2026-11-14",
+	"vars": {
+		// Comma-separated, no spaces: local preview, then the GitHub Pages site.
+		"ALLOWED_ORIGINS": "http://localhost:8000,https://mathiascornejo.github.io"
+	},
+	"kv_namespaces": [
+		// The Worker code reads env.CACHE, so the binding name must stay "CACHE".
+		{
+			"binding": "CACHE",
+			"id": "a265afcd93a94e9296257488966a2e17",
+			"remote": true
+		}
+	]
+	// The Tiingo key is a secret, not a var: npx wrangler secret put TIINGO_KEY
+}

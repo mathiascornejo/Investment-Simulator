@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Investment Simulator</title>
+  <link rel="stylesheet" href="styles.css">
+  <script type="module" src="js/app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#backtester">
+      <svg viewBox="0 0 32 32" aria-hidden="true">
+        <path d="M3 18 29 4v24Z" fill="currentColor" opacity=".1"/>
+        <path d="M3 18 29 4M3 18l26 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        <path d="M3 18 29 13" fill="none" stroke="var(--marigold)" stroke-width="2.5" stroke-linecap="round"/>
+      </svg>
+      Investment Simulator
+    </a>
+    <nav aria-label="Sections">
+      <a href="#backtester">Backtester</a>
+      <a href="#creator">Portfolio creator</a>
+      <a href="#monte-carlo">Monte Carlo</a>
+    </nav>
+  </header>
+
+  <main>
+    <section id="backtester">
+      <h1>Backtester</h1>
+      <p class="lede">Compare portfolios over any period: returns, drawdowns and risk, side by side.</p>
+      <div class="panel">
+        <h2>Check the price data</h2>
+        <p>Charts and statistics aren't built yet. For now, load a ticker to confirm that prices arrive.</p>
+        <form id="load-form">
+          <label for="ticker">Ticker</label>
+          <div class="row">
+            <input id="ticker" value="SPY" required pattern="[A-Za-z0-9\-]{1,10}" autocomplete="off" spellcheck="false">
+            <button type="submit">Load prices</button>
+          </div>
+        </form>
+        <p id="load-status" role="status"></p>
+      </div>
+    </section>
+
+    <section id="creator">
+      <h1>Portfolio creator</h1>
+      <p class="lede">Build a portfolio from stocks, bonds, funds and commodities. Set weights and rebalancing, then see its sector and regional mix.</p>
+      <p class="note">This tab isn't built yet.</p>
+    </section>
+
+    <section id="monte-carlo">
+      <h1>Monte Carlo</h1>
+      <p class="lede">Run thousands of possible futures for a portfolio to see how often it runs out, and how it would have come through 2008 and 2020.</p>
+      <p class="note">This tab isn't built yet.</p>
+    </section>
+  </main>
+
+  <footer>For education only. This simulator does not give investment advice, and past performance does not predict future returns.</footer>
+</body>
+</html>
