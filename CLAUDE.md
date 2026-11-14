@@ -47,11 +47,10 @@ Add one line per folder/file as it is created, so chats don't need to search.
 - Run the proxy locally: `(cd worker && npx wrangler dev)` — needs `worker/.dev.vars` containing `TIINGO_KEY=...`
 - Deploy the proxy: `(cd worker && npx wrangler deploy)`
 
-## Setup still to do (owner, one time)
-Done: Cloudflare account, KV cache, Worker deployed at https://investment-simulator-proxy.investmentsimulator.workers.dev (set in `js/data.js`), Tiingo key stored as the `TIINGO_KEY` secret.
-Not yet confirmed: real prices loading end to end (on 2026-11-14 the new workers.dev address was still waiting for its certificate).
-Remaining: create the GitHub repo, enable Pages, and put the Pages address in `ALLOWED_ORIGINS` (`worker/wrangler.jsonc`), then redeploy.
-Delete this section once done.
+## Deployment (live; real SPY prices confirmed on the live site 2026-11-14)
+- Site: https://mathiascornejo.github.io/Investment-Simulator/ — GitHub Pages serves the `main` branch root of the public repo `mathiascornejo/Investment-Simulator`. Pushing to `main` redeploys the site.
+- Proxy: https://investment-simulator-proxy.investmentsimulator.workers.dev — changes under `worker/` only go live after `npx wrangler deploy`. The Tiingo key is the Worker secret `TIINGO_KEY`.
+- Git: this repo pushes over HTTPS using the `gh` login, and commits use the GitHub no-reply email (both set in the repo's local git config).
 
 ## Working rules
 - Check this file first; do not re-research settled decisions.
