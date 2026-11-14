@@ -1,0 +1,81 @@
+// Monte Carlo simulation and historical crisis tests. Pure maths: no DOM, no network.
+import { windowOf, periodReturns } from "./stats.js";
+
+// Peak-to-trough dates of the S&P 500 in each crisis.
+export const CRISES = [
+  { name: "Dot-com crash", start: "2000-03-24", end: "2002-10-09" },
+  { name: "2008 financial crisis", start: "2007-10-09", end: "2009-03-09" },
+  { name: "2020 pandemic crash", start: "2020-02-19", end: "2020-03-23" },
+  { name: "2022 rate-rise sell-off", start: "2022-01-03", end: "2022-10-12" },
+];
+
+// Follows one balance through a list of monthly returns. Each month: take the withdrawal, then
+// apply the return. The yearly withdrawal is split into 12 and grows by `growth` each year.
+// Returns the balance at the end of every 12 months (index 0 is the start) and the month the
+// money ran out (null if it never did).
+export function walk(monthlyReturns, startValue, annualWithdrawal, growth) {
+  const yearly = [startValue];
+  let value = startValue;
+  let ranOutAt = null;
+  monthlyReturns.forEach((r, m) => {
+    if (ranOutAt === null) {
+      value -= (annualWithdrawal / 12) * (1 + growth) ** Math.floor(m / 12);
+      if (value <= 0.005) {
+        value = 0;
+        ranOutAt = m;
+      } else {
+        value *= 1 + r;
+      }
+    }
+    if ((m + 1) % 12 === 0) yearly.push(value);
+  });
+  return { yearly, ranOutAt, final: value };
+}
+
+// Value below which the fraction p of a sorted list falls (linear interpolation).
+export function percentile(sorted, p) {
+  const at = (sorted.length - 1) * p;
+  const lo = Math.floor(at);
+  return sorted[lo] + (sorted[Math.ceil(at)] - sorted[lo]) * (at - lo);
+}
+
+// Runs many possible futures. Each one draws its months at random, with replacement, from
+// `monthlyReturns` (the portfolio's real history), so it keeps the real mix of good and bad months.
+// shortcut: months are drawn independently, which loses the way bad months cluster in a crisis.
+// Draw blocks of consecutive months instead if failure rates look too optimistic.
+export function simulate({ monthlyReturns, startValue, annualWithdrawal, growth, years, runs, random = Math.random }) {
+  const byYear = Array.from({ length: years + 1 }, () => []);
+  let failures = 0;
+  for (let run = 0; run < runs; run++) {
+    const months = Array.from({ length: years * 12 }, () => monthlyReturns[Math.floor(random() * monthlyReturns.length)]);
+    const { yearly, ranOutAt } = walk(months, startValue, annualWithdrawal, growth);
+    if (ranOutAt !== null) failures++;
+    yearly.forEach((value, year) => byYear[year].push(value));
+  }
+  const bands = { p10: [], p25: [], p50: [], p75: [], p90: [] };
+  for (const values of byYear) {
+    values.sort((a, b) => a - b);
+    for (const key of Object.keys(bands)) bands[key].push(percentile(values, key.slice(1) / 100));
+  }
+  return { failureRate: failures / runs, bands };
+}
+
+// How a series behaved in one crisis: its lowest point relative to the day the crisis began, and
+// when it got back to that starting level. Null when the series has no data at the crisis start.
+export function crisisTest(points, { start, end }) {
+  if (!points.length || points[0].date > start) return null;
+  const during = windowOf(points, start, end).points;
+  if (during.length < 2) return null;
+  const base = during[0].adjClose;
+  const low = during.reduce((a, b) => (b.adjClose < a.adjClose ? b : a));
+  const recovery = points.find((p) => p.date > low.date && p.adjClose >= base);
+  return { lowest: low.adjClose / base - 1, lowDate: low.date, recovered: recovery?.date ?? null };
+}
+
+// What actually happened to a balance that started on `startDate` and took the same withdrawals,
+// following the series' real monthly returns from then to its last date.
+export function historicalRun(points, startDate, startValue, annualWithdrawal, growth) {
+  const months = periodReturns(windowOf(points, startDate, "9999-12-31").points, 7);
+  const { ranOutAt, final } = walk(months.map((m) => m.value), startValue, annualWithdrawal, growth);
+  return { final, ranOutIn: ranOutAt === null ? null : months[ranOutAt].period };
+}

@@ -154,8 +154,64 @@
 
     <section id="monte-carlo">
       <h1>Monte Carlo</h1>
-      <p class="lede">Run thousands of possible futures for a portfolio to see how often it runs out, and how it would have come through 2008 and 2020.</p>
-      <p class="note">This tab isn't built yet.</p>
+      <p class="lede">Run thousands of possible futures for a portfolio to see how often the money runs out, and how it came through past crises.</p>
+
+      <form id="mc-form" class="panel">
+        <div class="field-grid">
+          <div>
+            <label for="mc-portfolio">Portfolio</label>
+            <select id="mc-portfolio"></select>
+          </div>
+          <div id="mc-ticker-field">
+            <label for="mc-ticker">Ticker</label>
+            <input id="mc-ticker" class="ticker" value="SPY" autocomplete="off" spellcheck="false">
+          </div>
+          <div>
+            <label for="mc-start">Starting amount ($)</label>
+            <input type="number" id="mc-start" value="1000000" min="1" step="any" required>
+          </div>
+          <div>
+            <label for="mc-withdrawal">Withdrawal per year ($)</label>
+            <input type="number" id="mc-withdrawal" value="40000" min="0" step="any" required>
+          </div>
+          <div>
+            <label for="mc-growth">Withdrawals rise each year by (%)</label>
+            <input type="number" id="mc-growth" value="3" min="0" max="20" step="any" required>
+          </div>
+          <div>
+            <label for="mc-years">Years to simulate</label>
+            <input type="number" id="mc-years" value="30" min="1" max="60" step="1" required>
+          </div>
+          <div>
+            <label for="mc-runs">Number of runs</label>
+            <select id="mc-runs">
+              <option value="1000">1,000</option>
+              <option value="5000" selected>5,000</option>
+              <option value="10000">10,000</option>
+            </select>
+          </div>
+        </div>
+        <button type="submit">Run simulation</button>
+        <p id="mc-status" class="status" role="status"></p>
+      </form>
+
+      <div id="mc-results" class="panel" hidden>
+        <p class="hero"><span id="mc-failure"></span> <span id="mc-failure-label"></span></p>
+        <dl id="mc-tiles" class="facts"></dl>
+
+        <div class="block">
+          <h2 id="mc-chart-title"></h2>
+          <ul id="mc-legend" class="legend"></ul>
+          <div id="mc-chart" class="chart chart-tall"></div>
+          <p id="mc-method" class="hint"></p>
+        </div>
+
+        <div class="block">
+          <h2>Past crises</h2>
+          <p class="hint">What actually happened to this portfolio in each crisis, measured from the day the S&amp;P 500 peaked. The last column starts your amount on that day and takes your withdrawals through to the latest data.</p>
+          <div class="table-scroll"><table id="mc-crises"></table></div>
+        </div>
+      </div>
     </section>
   </main>
 

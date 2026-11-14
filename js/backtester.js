@@ -3,7 +3,7 @@
 import { fetchPrices } from "./data.js";
 import { windowOf, summarize, drawdowns, periodReturns } from "./stats.js";
 import { loadPortfolios, portfolioSeries } from "./portfolios.js";
-import { pct, num, money, longDate, show, element } from "./format.js";
+import { pct, num, money, moneyCompact, longDate, monthLabel, show, element } from "./format.js";
 
 const BENCHMARK = "SPY"; // beta is measured against this
 const START_VALUE = 10000;
@@ -35,9 +35,7 @@ let charts; // created on first draw, once the containers are visible and have a
 
 // Formatting (the shared formatters live in format.js; these are only for chart axes)
 const pctAxis = new Intl.NumberFormat(undefined, { style: "percent", maximumFractionDigits: 0, signDisplay: "negative" });
-const moneyAxis = new Intl.NumberFormat(undefined, { style: "currency", currency: "USD", notation: "compact", maximumFractionDigits: 1 });
 const escapeHtml = (text) => text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`); // portfolio names are typed by the user
-const monthLabel = (key) => new Date(`${key}-01`).toLocaleDateString(undefined, { month: "short", year: "numeric", timeZone: "UTC" });
 
 const METRICS = [
   ["Total return", "totalReturn", pct],
@@ -250,7 +248,7 @@ function drawTable(windows) {
 
 // Options shared by all three charts. Tooltip text comes from tickers (validated A-Z, 0-9, dash)
 // and our own formatted numbers, so building it as HTML is safe.
-function frame(formatHeader, format, pointer = "line") {
+export function frame(formatHeader, format, pointer = "line") {
   const axisLabel = { color: MUTED, fontSize: 12 };
   return {
     useUTC: true,
@@ -302,7 +300,7 @@ function logTicks(min, max) {
 function drawGrowth(windows) {
   const base = frame(longDate, money);
   const data = windows.map((w) => w.points.map((p) => [Date.parse(p.date), (START_VALUE * p.adjClose) / w.points[0].adjClose]));
-  const axisLabel = { ...base.yAxis.axisLabel, formatter: (v) => moneyAxis.format(v) };
+  const axisLabel = { ...base.yAxis.axisLabel, formatter: (v) => moneyCompact.format(v) };
   let yAxis = { ...base.yAxis, type: "value", scale: true, axisLabel };
   if (state.log) {
     const values = data.flat().map(([, v]) => v);

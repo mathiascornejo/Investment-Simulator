@@ -13,7 +13,7 @@ A web app that simulates portfolios and single assets against each other. Educat
 ## Finance rules (do not break)
 - Always use split- and dividend-adjusted (total return) prices for returns.
 - Beta and relative stats are measured against a benchmark (default: S&P 500).
-- Crisis windows: GFC Oct 2007 – Mar 2009; COVID 19 Feb – 23 Mar 2020.
+- Crisis windows are the S&P 500's peak-to-trough dates: dot-com 24 Mar 2000 – 9 Oct 2002; GFC 9 Oct 2007 – 9 Mar 2009; COVID 19 Feb – 23 Mar 2020; 2022 3 Jan – 12 Oct 2022.
 - Many ETFs are younger than 2008 (VOO launched Sep 2010). Crisis tests need a proxy map (e.g. VOO -> SPY/VFINX) or must say the asset has no data for that period. Never silently truncate.
 - Monte Carlo "failure" = portfolio hits zero before the horizon under the chosen withdrawals. State the method used (bootstrap vs parametric) in the UI.
 - API keys never ship to the browser or the repo; all Tiingo calls go through the Cloudflare Worker proxy.
@@ -42,7 +42,9 @@ Add one line per folder/file as it is created, so chats don't need to search.
 - `js/portfolios.js` — saved-portfolio storage (`loadPortfolios`, `savePortfolios`, which fires a `portfolios-changed` event) and the engine `portfolioSeries(portfolio, prices)`, which returns a price-like series starting at 100 so every `stats.js` function works on a portfolio. Tested by `js/portfolios.test.js`.
 - `js/creator.js` — the Portfolio creator tab: the form, validation, and the profile.
 - `js/format.js` — shared number/date formatters, `show()` and the `element()` DOM helper. Use these; don't add new formatters per tab.
-- `js/backtester.js` — the Backtester tab: loads tickers and saved portfolios, holds the selected period, draws the three ECharts charts and the statistics table. Reuse its `frame()` and `line()` helpers and `COLORS` for any new chart so all charts look alike.
+- `js/montecarlo.js` — pure simulation maths, tested by `js/montecarlo.test.js`: `walk` (one balance through a list of monthly returns), `simulate`, `percentile`, `crisisTest`, `historicalRun`, `CRISES`.
+- `js/montecarlo-tab.js` — the Monte Carlo tab: inputs, loading, cone chart, crises table.
+- `js/backtester.js` — the Backtester tab: loads tickers and saved portfolios, holds the selected period, draws the three ECharts charts and the statistics table. It exports `frame()`, the shared ECharts options (axes, grid, tooltip): build every new chart on it so all charts look alike.
 - `js/data.js` — `PROXY_URL` and `fetchPrices(ticker)` -> `[{ date, adjClose }]`, oldest first. All price loading goes through this.
 - `js/stats.js` — pure maths, tested by `js/stats.test.js` (`node --test js/stats.test.js`): `windowOf`, `totalReturn`, `cagr` (null under 1 year), `drawdowns`, `maxDrawdown`, `volatility`, `sharpe`, `sortino`, `beta`, `periodReturns` (yearly/monthly, flags partial periods), `summarize`. Uses daily returns, 252 trading days, 0% risk-free rate.
 - `worker/worker.js` — Cloudflare Worker proxy: `GET /prices?ticker=SPY`. `worker/wrangler.jsonc` is its config, `worker/worker.test.js` its tests.
@@ -55,11 +57,14 @@ Add one line per folder/file as it is created, so chats don't need to search.
   - Gotcha: don't turn on ECharts `sampling` for lines; it drops different dates per series and the shared tooltip then omits assets.
 - **Portfolio creator — built (2026-11-14), without sector/regional mix.** Name, up to 10 holdings with weights that must total 100%, rebalancing rule (never / month / quarter / year / drift band in percentage points). Saving checks every ticker has price data. The profile shows allocation bars and risk-and-return figures over the dates every holding has.
   - Not built yet: sector and regional mix (blocked on the data-source decision), asset names next to tickers, regular contributions or withdrawals, trading costs.
-- **Monte Carlo — not started.**
+- **Monte Carlo — built (2026-11-14).** Pick a saved portfolio or one ticker; set starting amount, yearly withdrawal, yearly rise in withdrawals, years (1-60) and runs (1,000/5,000/10,000). Shows the share of runs that ran out of money, median/10th/90th percentile ending balances, a cone chart (median line, middle 50% and middle 80% bands), and a past-crises table.
+  - Method: historical bootstrap. Months are drawn independently, with replacement, from the portfolio's own full-calendar-month returns; withdrawals are monthly; balances are nominal. Needs at least 24 months of history. The method is stated under the chart.
+  - Crises table: dot-com, 2008, 2020, 2022 (dates in `CRISES`). Shows lowest point vs the crisis start, SPY's lowest point, recovery date, and what the user's amount and withdrawals would have left from that start to the latest data. A crisis the portfolio has no data for says so and why.
+  - Not built yet: a proxy map for young funds (e.g. VOO -> SPY), block bootstrap, inflation-adjusted balances.
 
 ## Commands
 - Preview the site: `python3 -m http.server 8000`, then open http://localhost:8000
-- Run every test: `node --test js/stats.test.js js/portfolios.test.js worker/worker.test.js`
+- Run every test: `node --test js/stats.test.js js/portfolios.test.js js/montecarlo.test.js worker/worker.test.js`
 - Run the proxy locally: `(cd worker && npx wrangler dev)` — needs `worker/.dev.vars` containing `TIINGO_KEY=...`
 - Deploy the proxy: `(cd worker && npx wrangler deploy)`
 

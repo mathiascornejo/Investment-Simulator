@@ -169,6 +169,45 @@ legend {
   margin-bottom: 1rem;
 }
 
+/* Monte Carlo form and headline */
+.field-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
+  gap: 1rem 1.25rem;
+  align-items: end; /* inputs line up even when a label wraps onto two lines */
+  margin-bottom: 1.5rem;
+}
+
+.field-grid label { display: block; margin-bottom: 0.375rem; }
+.field-grid input, .field-grid select { width: 100%; }
+#mc-form .status { margin-bottom: 0; }
+#mc-results { margin-top: 1.5rem; }
+
+.hero {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.75rem;
+  margin: 0;
+  font-size: 1.125rem;
+  color: var(--muted);
+}
+
+/* The one big number on the page. Proportional figures: tabular ones look loose at this size. */
+#mc-failure {
+  font-size: 3.5rem;
+  font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: normal;
+  color: var(--ink);
+}
+
+/* Five columns of two-line cells: let text wrap so the table fits without sideways scrolling. */
+#mc-crises th, #mc-crises td { white-space: normal; }
+#mc-crises thead th:first-child, #mc-crises td[colspan] { text-align: left; }
+#mc-crises tbody th { min-width: 10rem; color: var(--ink); }
+#mc-crises td small, #mc-crises th small { display: block; font-size: 0.875rem; font-weight: 400; color: var(--muted); }
+
 /* Portfolio creator form */
 .field { margin-bottom: 1.5rem; }
 .field > label { display: block; margin-bottom: 0.375rem; }
