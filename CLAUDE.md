@@ -71,6 +71,7 @@ Add one line per folder/file as it is created, so chats don't need to search.
 ## Deployment (live; real SPY prices confirmed on the live site 2026-11-14)
 - Site: https://mathiascornejo.github.io/Investment-Simulator/ — GitHub Pages serves the `main` branch root of the public repo `mathiascornejo/Investment-Simulator`. Pushing to `main` redeploys the site.
 - Proxy: https://investment-simulator-proxy.investmentsimulator.workers.dev — changes under `worker/` only go live after `npx wrangler deploy`. The Tiingo key is the Worker secret `TIINGO_KEY`.
+- Caching gotcha: GitHub Pages tells browsers to keep each file for 10 minutes. A browser that visited shortly before a deploy can mix the new page with old scripts and styles (seen 2026-11-14: unstyled form, dead button) until it refreshes. When checking a deploy, reload bypassing the cache before concluding it is broken.
 - Git: this repo pushes over HTTPS using the `gh` login, and commits use the GitHub no-reply email (both set in the repo's local git config).
 
 ## Working rules
