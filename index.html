@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Investment Simulator</title>
   <link rel="stylesheet" href="styles.css">
+  <!-- Chart library. Pinned version; the integrity hash makes the browser reject a tampered file. -->
+  <script defer src="https://cdn.jsdelivr.net/npm/echarts@6.1.0/dist/echarts.min.js" integrity="sha256-tmslrrTfhOMxmdwhaUAU0zbSIsvZ3rDlp8FL1qoND9A=" crossorigin="anonymous"></script>
   <script type="module" src="js/app.js"></script>
 </head>
 <body>
@@ -27,18 +29,63 @@
   <main>
     <section id="backtester">
       <h1>Backtester</h1>
-      <p class="lede">Compare portfolios over any period: returns, drawdowns and risk, side by side.</p>
-      <div class="panel">
-        <h2>Check the price data</h2>
-        <p>Charts and statistics aren't built yet. For now, load a ticker to confirm that prices arrive.</p>
-        <form id="load-form">
-          <label for="ticker">Ticker</label>
-          <div class="row">
-            <input id="ticker" value="SPY" required pattern="[A-Za-z0-9\-]{1,10}" autocomplete="off" spellcheck="false">
-            <button type="submit">Load prices</button>
+      <p class="lede">Compare assets over any period: returns, drawdowns and risk, side by side. Saved portfolios will join once the Portfolio creator is built.</p>
+
+      <form id="compare-form">
+        <label for="tickers">Tickers to compare</label>
+        <div class="row">
+          <input id="tickers" value="SPY, BND" required autocomplete="off" spellcheck="false" aria-describedby="tickers-hint">
+          <button type="submit">Compare</button>
+        </div>
+        <p id="tickers-hint" class="hint">Up to 5 stocks, ETFs or mutual funds, separated by commas.</p>
+      </form>
+      <p id="compare-status" class="status" role="status"></p>
+
+      <div id="results" class="panel" hidden>
+        <div class="toolbar">
+          <div id="presets" class="segmented" role="group" aria-label="Period">
+            <button type="button" data-years="1">1Y</button>
+            <button type="button" data-years="3">3Y</button>
+            <button type="button" data-years="5">5Y</button>
+            <button type="button" data-years="10">10Y</button>
+            <button type="button" data-years="max">Max</button>
           </div>
-        </form>
-        <p id="load-status" role="status"></p>
+          <label>From <input type="date" id="from"></label>
+          <label>To <input type="date" id="to"></label>
+        </div>
+        <ul id="legend" class="legend" aria-label="Assets"></ul>
+
+        <div class="block">
+          <div class="block-head">
+            <h2>Growth of $10,000</h2>
+            <label class="check"><input type="checkbox" id="log-scale"> Log scale</label>
+          </div>
+          <div id="growth-chart" class="chart chart-tall"></div>
+        </div>
+
+        <div class="block">
+          <div class="block-head">
+            <h2>Returns by period</h2>
+            <div id="period" class="segmented" role="group" aria-label="Group returns by">
+              <button type="button" data-key-length="4">Year</button>
+              <button type="button" data-key-length="7">Month</button>
+            </div>
+          </div>
+          <div id="returns-chart" class="chart"></div>
+          <p class="hint">Faded bars are partial periods: the selected range starts or ends part-way through them.</p>
+        </div>
+
+        <div class="block">
+          <h2>Drawdowns</h2>
+          <p class="hint">How far each asset sat below its previous peak.</p>
+          <div id="drawdown-chart" class="chart chart-short"></div>
+        </div>
+
+        <div class="block">
+          <h2>Statistics</h2>
+          <div class="table-scroll"><table id="stats"></table></div>
+          <p class="hint">Volatility, Sharpe, Sortino and beta use daily returns, annualised over 252 trading days. Sharpe and Sortino assume a 0% risk-free rate, which flatters them when interest rates are high. Best and worst year count full calendar years only. Annualised return is shown for periods of a year or more.</p>
+        </div>
       </div>
     </section>
 

@@ -29,17 +29,27 @@ A web app that simulates portfolios and single assets against each other. Educat
 | Data proxy | DECIDED — Cloudflare Worker (free plan: 100,000 requests/day, 10 ms CPU per request) sits between the browser and Tiingo. Holds the Tiingo key as a Worker secret, allows only the EOD price endpoint, sends CORS headers for the Pages origin only, and caches each ticker's full history in Workers KV for 6 hours to stay under Tiingo's 50 requests/hour. |
 | Front end | DECIDED — plain HTML/CSS/JS with native ES modules. No framework, no build step, no npm dependencies: pushing to GitHub is the deploy. Revisit only if UI state becomes unmanageable. |
 | Visual style | DECIDED — tokens at the top of `styles.css`: cool paper background, navy ink, one marigold highlight, serif headings, system fonts only, light mode only. Green/red are reserved for gain/loss data. |
-| Chart library | NOT DECIDED. |
+| Chart library | DECIDED — Apache ECharts 6.1.0, loaded by script tag from jsDelivr with an integrity hash: `https://cdn.jsdelivr.net/npm/echarts@6.1.0/dist/echarts.min.js`, `sha256-tmslrrTfhOMxmdwhaUAU0zbSIsvZ3rDlp8FL1qoND9A=`. One library covers lines, bars, donuts and Monte Carlo bands. |
+| Chart colours | DECIDED — series colours in fixed order, validated colour-blind safe on white: `#2a78d6`, `#eb6834`, `#1baf7a`, `#eda100`, `#e87ba4` (max 5 series). Colour follows the asset, never its rank. Text is never series-coloured; always show a legend and the stats table. |
 | Known risk | Tiingo's free and $30 plans are "internal use only"; a public site showing its prices is outside that licence. Revisit before sharing the URL. |
 
 ## Project map
 Add one line per folder/file as it is created, so chats don't need to search.
 - `index.html` — the whole page: top bar, three tab sections (`#backtester`, `#creator`, `#monte-carlo`), disclaimer.
 - `styles.css` — design tokens and all styles.
-- `js/app.js` — tab switching (URL hash) and the Backtester's "check the price data" form.
+- `js/app.js` — tab switching (URL hash); imports each tab's module.
+- `js/backtester.js` — the Backtester tab: loads tickers, holds the selected period, draws the three ECharts charts and the statistics table. Reuse its `frame()` and `line()` helpers and `COLORS` for any new chart so all charts look alike.
 - `js/data.js` — `PROXY_URL` and `fetchPrices(ticker)` -> `[{ date, adjClose }]`, oldest first. All price loading goes through this.
+- `js/stats.js` — pure maths, tested by `js/stats.test.js` (`node --test js/stats.test.js`): `windowOf`, `totalReturn`, `cagr` (null under 1 year), `drawdowns`, `maxDrawdown`, `volatility`, `sharpe`, `sortino`, `beta`, `periodReturns` (yearly/monthly, flags partial periods), `summarize`. Uses daily returns, 252 trading days, 0% risk-free rate.
 - `worker/worker.js` — Cloudflare Worker proxy: `GET /prices?ticker=SPY`. `worker/wrangler.jsonc` is its config, `worker/worker.test.js` its tests.
 - `.claude/launch.json` — local preview server (port 8000).
+
+## Status of the tabs
+- **Backtester — built (2026-11-14), tickers only.** Up to 5 tickers (default `SPY, BND`; SPY is always fetched as the beta benchmark). Period buttons 1Y/3Y/5Y/10Y/Max plus From/To dates. Charts: growth of $10,000 (log toggle), returns by year or month, drawdowns. Stats table with a difference column when exactly two assets are compared. The comparison covers only the dates every asset has, and the page says which asset limits the start.
+  - Not built yet: comparing saved portfolios (needs the Portfolio creator), a table of the worst drawdowns, a real risk-free rate.
+  - Gotcha: don't turn on ECharts `sampling` for lines; it drops different dates per series and the shared tooltip then omits assets.
+- **Portfolio creator — not started.**
+- **Monte Carlo — not started.**
 
 ## Commands
 - Preview the site: `python3 -m http.server 8000`, then open http://localhost:8000
