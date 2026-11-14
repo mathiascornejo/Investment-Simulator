@@ -15,4 +15,4 @@ addEventListener("hashchange", showTab);
 showTab();
 
 // Each tab's own code. Imported after the tabs are set up so charts measure visible containers.
-await import("./backtester.js");
+await Promise.all([import("./backtester.js"), import("./creator.js")]);

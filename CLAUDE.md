@@ -7,7 +7,7 @@ A web app that simulates portfolios and single assets against each other. Educat
 
 ## Tabs
 1. **Simulation / Backtester** — compare portfolios side by side: monthly/annual gain, CAGR, volatility, max drawdown, beta, Sharpe/Sortino, best/worst year, and the difference between portfolios. Growth chart + drawdown chart, with a time-range selector (1Y, 3Y, 5Y, 10Y, Max, custom).
-2. **Portfolio Creator** — build portfolios from stocks, bonds, funds, commodities, etc. Set weights, rebalancing rule (none / monthly / quarterly / annual / drift band), and other options. Show a portfolio profile (sector, geographic concentration, asset mix, characteristics) modelled on Vanguard's VOO profile page, down to (not including) the portfolio composition section.
+2. **Portfolio Creator** — build portfolios from stocks, bonds, funds, commodities, etc. Set weights, rebalancing rule (none / monthly / quarterly / annual / drift band), and other options. Show a portfolio profile (sector, geographic concentration, asset mix, characteristics) modelled on Vanguard's VOO profile page. The owner's words were "until the portfolio composition part"; since they asked for sector and geographic mix, which sit inside that section on Vanguard's page, read it as up to and including it (unconfirmed).
 3. **Monte Carlo** — thousands of randomized runs for a selected portfolio: failure rate, probability cones (percentile bands). Stress tests against historical crises (2008 crash, 2020 downturn).
 
 ## Finance rules (do not break)
@@ -22,7 +22,8 @@ A web app that simulates portfolios and single assets against each other. Educat
 | Topic | Status |
 |---|---|
 | Historical data source | DECIDED — Tiingo EOD API (adjusted prices, 30+ yrs). Free tier limits: 500 unique symbols/month, 50 requests/hour, 1,000/day, internal use only — so cache every series. FRED as free add-on for risk-free rate / CPI. |
-| Fund profile data (sector / country weights) | PENDING — Tiingo does not provide it. Candidates when tab 2 is built: FMP or EODHD paid tiers. |
+| Fund profile data (sector / country weights) | PENDING (owner's decision, costs money) — Tiingo does not provide it. Candidates: EODHD fundamentals ($59.99/mo, sector + region + holdings), FMP (sector and country endpoints; which plan includes them is unconfirmed), Alpha Vantage free key (25 requests/day; ETF sectors only, no geography; free access unconfirmed). The profile shows a "not available yet" note until this is chosen. |
+| Saved portfolios | DECIDED — kept in the visitor's browser (`localStorage`, key `portfolios`). No accounts, no server. They do not travel between browsers or devices. |
 | Chart look | DECIDED — Portfolio Visualizer: growth chart, annual return bars, drawdown chart/table, Monte Carlo percentile bands. |
 | Overall site design | DECIDED — blend of Simply Wall St (visual, infographic-style analysis), Wealthsimple (calm, editorial), Monarch (warm, friendly dashboards), Mercury (calm presentation of money), Vanguard (fund profile layout for tab 2). |
 | Hosting | DECIDED — static front end on GitHub Pages (no server-side code; site is public even from a private repo). All backtest / Monte Carlo maths runs in the browser. |
@@ -38,7 +39,10 @@ Add one line per folder/file as it is created, so chats don't need to search.
 - `index.html` — the whole page: top bar, three tab sections (`#backtester`, `#creator`, `#monte-carlo`), disclaimer.
 - `styles.css` — design tokens and all styles.
 - `js/app.js` — tab switching (URL hash); imports each tab's module.
-- `js/backtester.js` — the Backtester tab: loads tickers, holds the selected period, draws the three ECharts charts and the statistics table. Reuse its `frame()` and `line()` helpers and `COLORS` for any new chart so all charts look alike.
+- `js/portfolios.js` — saved-portfolio storage (`loadPortfolios`, `savePortfolios`, which fires a `portfolios-changed` event) and the engine `portfolioSeries(portfolio, prices)`, which returns a price-like series starting at 100 so every `stats.js` function works on a portfolio. Tested by `js/portfolios.test.js`.
+- `js/creator.js` — the Portfolio creator tab: the form, validation, and the profile.
+- `js/format.js` — shared number/date formatters, `show()` and the `element()` DOM helper. Use these; don't add new formatters per tab.
+- `js/backtester.js` — the Backtester tab: loads tickers and saved portfolios, holds the selected period, draws the three ECharts charts and the statistics table. Reuse its `frame()` and `line()` helpers and `COLORS` for any new chart so all charts look alike.
 - `js/data.js` — `PROXY_URL` and `fetchPrices(ticker)` -> `[{ date, adjClose }]`, oldest first. All price loading goes through this.
 - `js/stats.js` — pure maths, tested by `js/stats.test.js` (`node --test js/stats.test.js`): `windowOf`, `totalReturn`, `cagr` (null under 1 year), `drawdowns`, `maxDrawdown`, `volatility`, `sharpe`, `sortino`, `beta`, `periodReturns` (yearly/monthly, flags partial periods), `summarize`. Uses daily returns, 252 trading days, 0% risk-free rate.
 - `worker/worker.js` — Cloudflare Worker proxy: `GET /prices?ticker=SPY`. `worker/wrangler.jsonc` is its config, `worker/worker.test.js` its tests.
@@ -46,14 +50,16 @@ Add one line per folder/file as it is created, so chats don't need to search.
 
 ## Status of the tabs
 - **Backtester — built (2026-11-14), tickers only.** Up to 5 tickers (default `SPY, BND`; SPY is always fetched as the beta benchmark). Period buttons 1Y/3Y/5Y/10Y/Max plus From/To dates. Charts: growth of $10,000 (log toggle), returns by year or month, drawdowns. Stats table with a difference column when exactly two assets are compared. The comparison covers only the dates every asset has, and the page says which asset limits the start.
-  - Not built yet: comparing saved portfolios (needs the Portfolio creator), a table of the worst drawdowns, a real risk-free rate.
+  - Saved portfolios appear as checkboxes and are compared like tickers (max 5 lines in total).
+  - Not built yet: a table of the worst drawdowns, a real risk-free rate.
   - Gotcha: don't turn on ECharts `sampling` for lines; it drops different dates per series and the shared tooltip then omits assets.
-- **Portfolio creator — not started.**
+- **Portfolio creator — built (2026-11-14), without sector/regional mix.** Name, up to 10 holdings with weights that must total 100%, rebalancing rule (never / month / quarter / year / drift band in percentage points). Saving checks every ticker has price data. The profile shows allocation bars and risk-and-return figures over the dates every holding has.
+  - Not built yet: sector and regional mix (blocked on the data-source decision), asset names next to tickers, regular contributions or withdrawals, trading costs.
 - **Monte Carlo — not started.**
 
 ## Commands
 - Preview the site: `python3 -m http.server 8000`, then open http://localhost:8000
-- Test the proxy: `node --test worker/worker.test.js`
+- Run every test: `node --test js/stats.test.js js/portfolios.test.js worker/worker.test.js`
 - Run the proxy locally: `(cd worker && npx wrangler dev)` — needs `worker/.dev.vars` containing `TIINGO_KEY=...`
 - Deploy the proxy: `(cd worker && npx wrangler deploy)`
 

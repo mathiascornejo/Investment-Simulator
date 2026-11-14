@@ -2,10 +2,12 @@
 // All maths lives in stats.js; this file is fetching, state and drawing.
 import { fetchPrices } from "./data.js";
 import { windowOf, summarize, drawdowns, periodReturns } from "./stats.js";
+import { loadPortfolios, portfolioSeries } from "./portfolios.js";
+import { pct, num, money, longDate, show, element } from "./format.js";
 
 const BENCHMARK = "SPY"; // beta is measured against this
 const START_VALUE = 10000;
-const MAX_TICKERS = 5;
+const MAX_SERIES = 5; // one colour each; see COLORS
 // Fixed order, checked colour-blind safe on white. A colour belongs to a position in the
 // ticker list, so an asset keeps its colour when others fail to load.
 const COLORS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4"];
@@ -19,7 +21,7 @@ const form = $("compare-form");
 const status = $("compare-status");
 
 const state = {
-  series: [], // [{ ticker, color, points }]
+  series: [], // [{ label, color, points }]: a ticker or a saved portfolio
   benchmark: [],
   min: "", // first date every asset has
   max: "", // last date every asset has
@@ -31,14 +33,10 @@ const state = {
 };
 let charts; // created on first draw, once the containers are visible and have a size
 
-// Formatting
-// signDisplay "negative" stops a tiny negative number printing as "-0.00".
-const pct = new Intl.NumberFormat(undefined, { style: "percent", minimumFractionDigits: 2, maximumFractionDigits: 2, signDisplay: "negative" });
+// Formatting (the shared formatters live in format.js; these are only for chart axes)
 const pctAxis = new Intl.NumberFormat(undefined, { style: "percent", maximumFractionDigits: 0, signDisplay: "negative" });
-const num = new Intl.NumberFormat(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2, signDisplay: "negative" });
-const money = new Intl.NumberFormat(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 const moneyAxis = new Intl.NumberFormat(undefined, { style: "currency", currency: "USD", notation: "compact", maximumFractionDigits: 1 });
-const longDate = (d) => new Date(d).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+const escapeHtml = (text) => text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`); // portfolio names are typed by the user
 const monthLabel = (key) => new Date(`${key}-01`).toLocaleDateString(undefined, { month: "short", year: "numeric", timeZone: "UTC" });
 
 const METRICS = [
@@ -53,8 +51,6 @@ const METRICS = [
   [`Beta vs ${BENCHMARK}`, "beta", num],
   ["$10,000 became", "finalValue", money],
 ];
-
-const show = (value, format) => (Number.isFinite(value) ? format.format(value) : "–");
 
 function showDifference(a, b, format) {
   if (!Number.isFinite(a) || !Number.isFinite(b)) return "–";
@@ -72,30 +68,63 @@ function say(text, isError = false) {
 
 const yearsBefore = (date, years) => `${date.slice(0, 4) - years}${date.slice(4)}`;
 
+// Saved portfolios appear as checkboxes above the tickers box.
+function listPortfolios() {
+  const checked = new Set([...$("portfolio-checks").querySelectorAll(":checked")].map((box) => box.value));
+  const saved = loadPortfolios();
+  $("portfolio-picks").hidden = !saved.length;
+  $("portfolio-checks").replaceChildren(
+    ...saved.map((p) => {
+      const box = Object.assign(element("input"), { type: "checkbox", value: p.name, checked: checked.has(p.name) });
+      return Object.assign(element("label", box, p.name), { className: "check" });
+    }),
+  );
+}
+addEventListener("portfolios-changed", listPortfolios);
+listPortfolios();
+
 // Loading
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   const tickers = [...new Set($("tickers").value.toUpperCase().split(/[\s,]+/).filter(Boolean))];
-  if (!tickers.length || tickers.length > MAX_TICKERS || tickers.some((t) => !/^[A-Z0-9-]{1,10}$/.test(t))) {
-    say(`Enter 1 to ${MAX_TICKERS} tickers separated by commas, using letters, digits and dashes only.`, true);
+  if (tickers.some((t) => !/^[A-Z0-9-]{1,10}$/.test(t))) {
+    say("Tickers can only contain letters, digits and dashes. Separate them with commas.", true);
+    return;
+  }
+  const picked = new Set([...$("portfolio-checks").querySelectorAll(":checked")].map((box) => box.value));
+  // Portfolios first, then tickers. A line's colour comes from its position in this list.
+  const lines = [
+    ...loadPortfolios().filter((p) => picked.has(p.name)).map((p) => ({ label: p.name, tickers: p.holdings.map((h) => h.ticker), portfolio: p })),
+    ...tickers.map((t) => ({ label: t, tickers: [t] })),
+  ];
+  if (!lines.length || lines.length > MAX_SERIES) {
+    say(`Choose between 1 and ${MAX_SERIES} portfolios and tickers in total.`, true);
     return;
   }
 
   const button = form.querySelector("button");
   button.disabled = true;
-  say(`Loading ${tickers.join(", ")}…`);
-  const wanted = tickers.includes(BENCHMARK) ? tickers : [...tickers, BENCHMARK];
+  say(`Loading ${lines.map((l) => l.label).join(", ")}…`);
+  const wanted = [...new Set([...lines.flatMap((l) => l.tickers), BENCHMARK])];
   const loaded = await Promise.allSettled(wanted.map(fetchPrices));
   button.disabled = false;
+  const prices = {};
+  const errors = {};
+  wanted.forEach((t, i) => {
+    if (loaded[i].status === "fulfilled") prices[t] = loaded[i].value;
+    else errors[t] = loaded[i].reason.message.replace(/\.$/, "");
+  });
 
   const problems = [];
   state.series = [];
-  tickers.forEach((ticker, i) => {
-    if (loaded[i].status === "fulfilled") state.series.push({ ticker, color: COLORS[i], points: loaded[i].value });
-    else problems.push(`${ticker} didn't load: ${loaded[i].reason.message.replace(/\.$/, "")}.`);
+  lines.forEach((l, i) => {
+    const missing = l.tickers.find((t) => !prices[t]);
+    if (missing) return problems.push(`${l.label} didn't load: ${errors[missing]}.`);
+    const points = l.portfolio ? portfolioSeries(l.portfolio, prices).points : prices[l.label];
+    if (points.length < 3) return problems.push(`${l.label} can't be measured: its holdings have no dates in common.`);
+    state.series.push({ label: l.label, color: COLORS[i], points });
   });
-  const benchmark = loaded[wanted.indexOf(BENCHMARK)];
-  state.benchmark = benchmark.status === "fulfilled" ? benchmark.value : [];
+  state.benchmark = prices[BENCHMARK] ?? [];
 
   if (!state.series.length) {
     $("results").hidden = true;
@@ -118,7 +147,7 @@ form.addEventListener("submit", async (event) => {
 
   const notes = [];
   if (state.series.some((s) => s.points[0].date < state.min)) {
-    notes.push(`The comparison starts on ${longDate(state.min)}, when ${latestStarter.ticker}'s data begins.`);
+    notes.push(`The comparison starts on ${longDate(state.min)}, when ${latestStarter.label}'s data begins.`);
   }
   say([...notes, ...problems].join(" "), problems.length > 0);
   $("results").hidden = false;
@@ -178,7 +207,7 @@ function draw() {
     Object.assign($(id), { min: state.min, max: state.max, value });
   }
 
-  $("legend").replaceChildren(...windows.map((w) => element("li", swatch(w.color), w.ticker)));
+  $("legend").replaceChildren(...windows.map((w) => element("li", swatch(w.color), w.label)));
   drawTable(windows);
 
   if (!window.echarts) {
@@ -197,12 +226,6 @@ function draw() {
   drawDrawdowns(windows);
 }
 
-const element = (tag, ...children) => {
-  const node = document.createElement(tag);
-  node.append(...children);
-  return node;
-};
-
 function swatch(color) {
   const node = element("span");
   node.className = "swatch";
@@ -212,9 +235,9 @@ function swatch(color) {
 
 function drawTable(windows) {
   const stats = windows.map((w) => summarize(w.points, state.benchmark, w.nextDate, START_VALUE));
-  const columnHeads = windows.map((w) => Object.assign(element("th", swatch(w.color), w.ticker), { scope: "col" }));
+  const columnHeads = windows.map((w) => Object.assign(element("th", swatch(w.color), w.label), { scope: "col" }));
   if (windows.length === 2) {
-    columnHeads.push(Object.assign(element("th", `${windows[0].ticker} − ${windows[1].ticker}`), { scope: "col" }));
+    columnHeads.push(Object.assign(element("th", `${windows[0].label} − ${windows[1].label}`), { scope: "col" }));
   }
 
   const rows = METRICS.map(([label, key, format]) => {
@@ -246,7 +269,7 @@ function frame(formatHeader, format, pointer = "line") {
         items
           .map((item) => {
             const value = Array.isArray(item.value) ? item.value[1] : item.value;
-            return `<div style="display:flex;justify-content:space-between;gap:1.5rem"><span>${item.marker}${item.seriesName}</span><span>${show(value, format)}</span></div>`;
+            return `<div style="display:flex;justify-content:space-between;gap:1.5rem"><span>${item.marker}${escapeHtml(item.seriesName)}</span><span>${show(value, format)}</span></div>`;
           })
           .join(""),
     },
@@ -256,7 +279,7 @@ function frame(formatHeader, format, pointer = "line") {
 }
 
 const line = (w, data, extra = {}) => ({
-  name: w.ticker,
+  name: w.label,
   type: "line",
   showSymbol: false, // no downsampling: it drops different dates per line, so the tooltip would miss assets
   lineStyle: { width: 2, color: w.color },
@@ -325,7 +348,7 @@ function drawReturns(windows) {
       xAxis: { ...base.xAxis, type: "category", data: periods, axisLabel: { ...base.xAxis.axisLabel, formatter: label } },
       yAxis: { ...base.yAxis, type: "value", axisLabel: { ...base.yAxis.axisLabel, formatter: (v) => pctAxis.format(v) } },
       series: windows.map((w, i) => ({
-        name: w.ticker,
+        name: w.label,
         type: "bar",
         barMaxWidth: 24,
         barGap: "10%",

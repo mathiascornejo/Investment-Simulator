@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Investment Simulator</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M3 18 29 4v24Z' fill='%2315233b' opacity='.15'/%3E%3Cpath d='M3 18 29 4M3 18l26 10' fill='none' stroke='%2315233b' stroke-width='2' stroke-linecap='round'/%3E%3Cpath d='M3 18 29 13' fill='none' stroke='%23e9a21b' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="styles.css">
   <!-- Chart library. Pinned version; the integrity hash makes the browser reject a tampered file. -->
   <script defer src="https://cdn.jsdelivr.net/npm/echarts@6.1.0/dist/echarts.min.js" integrity="sha256-tmslrrTfhOMxmdwhaUAU0zbSIsvZ3rDlp8FL1qoND9A=" crossorigin="anonymous"></script>
@@ -29,15 +30,19 @@
   <main>
     <section id="backtester">
       <h1>Backtester</h1>
-      <p class="lede">Compare assets over any period: returns, drawdowns and risk, side by side. Saved portfolios will join once the Portfolio creator is built.</p>
+      <p class="lede">Compare portfolios and single assets over any period: returns, drawdowns and risk, side by side.</p>
 
       <form id="compare-form">
+        <fieldset id="portfolio-picks" hidden>
+          <legend>Portfolios to compare</legend>
+          <div id="portfolio-checks" class="checks"></div>
+        </fieldset>
         <label for="tickers">Tickers to compare</label>
         <div class="row">
-          <input id="tickers" value="SPY, BND" required autocomplete="off" spellcheck="false" aria-describedby="tickers-hint">
+          <input id="tickers" value="SPY, BND" autocomplete="off" spellcheck="false" aria-describedby="tickers-hint">
           <button type="submit">Compare</button>
         </div>
-        <p id="tickers-hint" class="hint">Up to 5 stocks, ETFs or mutual funds, separated by commas.</p>
+        <p id="tickers-hint" class="hint">Stocks, ETFs or mutual funds, separated by commas. Up to 5 lines in total, counting portfolios.</p>
       </form>
       <p id="compare-status" class="status" role="status"></p>
 
@@ -91,8 +96,60 @@
 
     <section id="creator">
       <h1>Portfolio creator</h1>
-      <p class="lede">Build a portfolio from stocks, bonds, funds and commodities. Set weights and rebalancing, then see its sector and regional mix.</p>
-      <p class="note">This tab isn't built yet.</p>
+      <p class="lede">Build a portfolio from stocks, bonds, funds and commodities. Set its weights and rebalancing rule, then compare it in the Backtester.</p>
+
+      <form id="portfolio-form" class="panel">
+        <div class="field">
+          <label for="portfolio-pick">Portfolio</label>
+          <select id="portfolio-pick"></select>
+        </div>
+        <div class="field">
+          <label for="portfolio-name">Name</label>
+          <input id="portfolio-name" required maxlength="40" autocomplete="off">
+        </div>
+        <fieldset class="field">
+          <legend>Holdings</legend>
+          <div class="holding holding-head" aria-hidden="true"><span>Ticker</span><span>Weight %</span></div>
+          <div id="holdings"></div>
+          <div class="row">
+            <button type="button" id="add-holding" class="quiet">Add holding</button>
+            <span id="weight-total" class="total"></span>
+          </div>
+        </fieldset>
+        <div class="field">
+          <label for="rebalance">Rebalancing</label>
+          <select id="rebalance"></select>
+          <p id="band-field" class="inline-field" hidden>
+            <label for="band">Rebalance when any holding is more than</label>
+            <input type="number" id="band" min="1" max="50" step="1" value="5">
+            <span>percentage points from its target.</span>
+          </p>
+          <p class="hint">Rebalancing sells what has grown and buys what has lagged, to return to the target weights. Trading costs and taxes are not modelled.</p>
+        </div>
+        <div class="row">
+          <button type="submit">Save portfolio</button>
+          <button type="button" id="delete-portfolio" class="quiet" hidden>Delete portfolio</button>
+        </div>
+        <p id="portfolio-status" class="status" role="status"></p>
+      </form>
+
+      <div id="profile" class="panel" hidden>
+        <h2 id="profile-title" class="profile-title"></h2>
+        <p id="profile-summary" class="hint"></p>
+        <div class="block">
+          <h2>Allocation</h2>
+          <div id="allocation" class="allocation"></div>
+        </div>
+        <div class="block">
+          <h2>Risk and return</h2>
+          <p id="profile-range" class="hint"></p>
+          <dl id="facts" class="facts"></dl>
+        </div>
+        <div class="block">
+          <h2>Sector and regional mix</h2>
+          <p class="hint">Not available yet. The price source doesn't publish what each fund holds, so this needs a second data source.</p>
+        </div>
+      </div>
     </section>
 
     <section id="monte-carlo">
