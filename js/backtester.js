@@ -270,8 +270,8 @@ for (const id of ["growth-chart", "drawdown-chart"]) {
     const [start, end] = [Date.parse(state.start), Date.parse(state.end)];
     // Like TradingView: while the latest date is showing, it stays put and the left side moves.
     const at = state.end === state.max ? end : Math.min(Math.max(msAt(event), start), end);
-    // Scaled by how far the wheel turned (a trackpad fires many small events, a mouse a few big ones): 100 px = 2%.
-    const k = Math.exp((Math.max(-100, Math.min(100, event.deltaY * (event.deltaMode === 1 ? 33 : 1))) * 0.02) / 100);
+    // Scaled by how far the wheel turned (a trackpad fires many small events, a mouse a few big ones): 100 px = 5%.
+    const k = Math.exp((Math.max(-100, Math.min(100, event.deltaY * (event.deltaMode === 1 ? 33 : 1))) * 0.05) / 100);
     setSpan(at - (at - start) * k, at + (end - at) * k);
   }, { passive: false });
   box.addEventListener("pointerdown", (event) => {
