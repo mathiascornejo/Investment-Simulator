@@ -78,7 +78,7 @@ kbd { font: 600 0.75rem/1 var(--sans); padding: 0.1875rem 0.375rem; border: 1px 
 .brand:active { transform: scale(0.98); }
 .brand .menu-icon { width: 1.25rem; height: 1.25rem; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
 .sidebar {
-  inset: 4rem auto auto 0.75rem;
+  inset: 0.5rem auto auto 0.5rem;
   width: min(15rem, 85vw);
   height: auto;
   max-height: none;
