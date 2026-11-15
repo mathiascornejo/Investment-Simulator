@@ -10,7 +10,6 @@ import { glyph, assetClass, countUp, toast } from "./visuals.js";
 import { term } from "./glossary.js";
 
 const BENCHMARK = "SPY";
-const MAX_HOLDINGS = 10; // each holding is one request to Tiingo, and the free plan allows 50 an hour
 const EXAMPLE = [["SPY", 60], ["BND", 40]];
 
 const $ = (id) => document.getElementById(id);
@@ -109,7 +108,6 @@ function readForm() {
 
 // Events
 $("add-holding").addEventListener("click", () => {
-  if ($("holdings").children.length >= MAX_HOLDINGS) return say(`A portfolio can have up to ${MAX_HOLDINGS} holdings.`, true);
   addHolding();
   $("holdings").lastElementChild.querySelector("input").focus();
   showTotal();
@@ -177,7 +175,7 @@ async function showProfile(portfolio) {
   $("profile-title").textContent = portfolio.name;
 
   // Colour follows the holding's place in the portfolio, as in the Backtester.
-  const colored = portfolio.holdings.map((h, i) => ({ ...h, color: COLORS[i] }));
+  const colored = portfolio.holdings.map((h, i) => ({ ...h, color: COLORS[i % COLORS.length] }));
   const sorted = [...colored].sort((a, b) => b.weight - a.weight);
   $("allocation").replaceChildren(
     ...sorted.map((h) => {
