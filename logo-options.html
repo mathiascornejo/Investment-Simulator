@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Investment Simulator — logo options</title>
+<style>
+/* Same tokens as styles.css: cool paper, navy ink, one marigold highlight. */
+:root{--paper:#f3f5f1;--surface:#fff;--ink:#15233b;--muted:#5a6779;--line:#d9dfd8;--mari:#e9a21b;
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,serif;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.5 var(--sans)}
+main{width:min(100% - 3rem,72rem);margin:auto;padding:3rem 0 4rem}
+h1{font:500 2.4rem/1.1 var(--serif);margin:0 0 .4rem}
+main>p{color:var(--muted);margin:0 0 2rem;max-width:60ch}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:1.25rem}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.hero{display:grid;place-items:center;height:180px;color:var(--ink)}
+.hero svg{width:96px;height:96px}
+.row{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:.9rem 1.1rem;border-top:1px solid var(--line)}
+.lockup{display:inline-flex;align-items:center;gap:.6rem;font:500 1.25rem/1 var(--serif)}
+.lockup svg{width:1.75rem;height:1.75rem}
+.dark{background:var(--ink);color:var(--paper)}
+.tiny{display:flex;gap:.5rem;align-items:center}
+.tiny svg{width:16px;height:16px}
+.meta{padding:.9rem 1.1rem 1.1rem;border-top:1px solid var(--line)}
+.meta h2{font:600 1.05rem var(--serif);margin:0}
+.meta h2 b{font:700 .8rem ui-monospace,Menlo,monospace;color:var(--muted);margin-right:.4rem}
+.meta p{margin:.2rem 0 0;color:var(--muted);font-size:.9rem}
+</style>
+</head>
+<body>
+<main>
+  <h1>Logo options</h1>
+  <p>Ten marks for Investment Simulator, drawn in the site's own colours. Each card shows the mark large, in the header lockup on paper and on navy, and at favicon size.</p>
+  <div class="grid" id="grid"></div>
+</main>
+<script>
+// Each mark is a 48×48 SVG body. Ink = currentColor, highlight = marigold.
+const M = 'var(--mari)';
+const logos = [
+  ['Percentile cone', 'The Monte Carlo fan: outer bands fade, the median line is marigold. A tidier take on today\'s mark.',
+   `<path d="M6 26 42 8v32Z" fill="currentColor" opacity=".08"/><path d="M6 26 42 15v20Z" fill="currentColor" opacity=".14"/>
+    <path d="M6 26 42 8M6 26l36 14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    <path d="M6 26 42 24" stroke="${M}" stroke-width="3.5" stroke-linecap="round"/><circle cx="6" cy="26" r="3" fill="currentColor"/>`],
+  ['Branching paths', 'One starting point, many possible futures: a single path forks into simulated runs.',
+   `<g stroke="currentColor" stroke-width="2.5" stroke-linecap="round" fill="none"><path d="M6 30h10"/><path d="M16 30c8 0 8-14 26-18"/><path d="M16 30c8 0 10-4 26-2"/><path d="M16 30c8 0 8 10 26 12"/></g>
+    <path d="M16 30c8 0 9-8 26-8" stroke="${M}" stroke-width="3.5" stroke-linecap="round" fill="none"/><circle cx="6" cy="30" r="3.5" fill="currentColor"/>`],
+  ['Two lines, compared', 'The Backtester in one glyph: two portfolios start together and diverge.',
+   `<path d="M6 38 16 30l8 4 18-24" stroke="${M}" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    <path d="M6 38 16 34l10 0 16-12" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    <path d="M6 42h36" stroke="currentColor" stroke-width="1.5" opacity=".35"/>`],
+  ['Rising bars', 'Annual-return bars climbing, the latest year picked out in marigold.',
+   `<rect x="6" y="28" width="7" height="14" rx="1.5" fill="currentColor"/><rect x="16" y="22" width="7" height="20" rx="1.5" fill="currentColor"/>
+    <rect x="26" y="16" width="7" height="26" rx="1.5" fill="currentColor"/><rect x="36" y="6" width="7" height="36" rx="1.5" fill="${M}"/>`],
+  ['Dip and recovery', 'A drawdown and its recovery inside a ring: the honest shape of investing.',
+   `<circle cx="24" cy="24" r="20" stroke="currentColor" stroke-width="2.5" fill="none"/>
+    <path d="M9 22c5-4 8-4 11 4s6 10 9 4 6-14 10-16" stroke="${M}" stroke-width="3.5" stroke-linecap="round" fill="none"/>`],
+  ['Dice chart', 'A die whose pips climb like a chart: chance, measured.',
+   `<rect x="5" y="5" width="38" height="38" rx="9" stroke="currentColor" stroke-width="2.5" fill="none"/>
+    <circle cx="14" cy="34" r="3.5" fill="currentColor"/><circle cx="24" cy="26" r="3.5" fill="currentColor"/><circle cx="34" cy="14" r="4" fill="${M}"/>
+    <path d="M14 34 24 26l10-12" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2 3" fill="none"/>`],
+  ['Allocation ring', 'A portfolio donut: the Portfolio creator\'s mix, one holding highlighted.',
+   `<g fill="none" stroke-width="8"><circle cx="24" cy="24" r="16" stroke="currentColor" opacity=".18"/>
+    <circle cx="24" cy="24" r="16" stroke="currentColor" stroke-dasharray="50 100.5" transform="rotate(-90 24 24)"/>
+    <circle cx="24" cy="24" r="16" stroke="${M}" stroke-dasharray="22 100.5" stroke-dashoffset="-53" transform="rotate(-90 24 24)"/></g>`],
+  ['Bell curve', 'The distribution of outcomes, with the median marked.',
+   `<path d="M4 40c8 0 10-30 20-30s12 30 20 30" stroke="currentColor" stroke-width="3" stroke-linecap="round" fill="currentColor" fill-opacity=".08"/>
+    <path d="M24 10v30" stroke="${M}" stroke-width="3.5" stroke-linecap="round"/><path d="M4 40h40" stroke="currentColor" stroke-width="1.5" opacity=".4"/>`],
+  ['Serif S seal', 'An editorial monogram: a serif S in a navy tile with a marigold dot, like a mark on a ledger.',
+   `<rect x="3" y="3" width="42" height="42" rx="11" fill="currentColor"/>
+    <text x="22" y="35" text-anchor="middle" font-family="Iowan Old Style,Palatino,Georgia,serif" font-size="30" font-weight="600" fill="var(--paper)">S</text>
+    <circle cx="36" cy="33" r="3.5" fill="${M}"/>`],
+  ['Horizon', 'A sun rising over a line chart: long-term growth, calm and optimistic.',
+   `<circle cx="24" cy="26" r="11" fill="${M}"/><path d="M4 34h40" stroke="var(--bg)" stroke-width="7"/>
+    <path d="M4 34 13 28l7 4 9-9 6 4 9-9" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    <path d="M4 40h40" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>`],
+];
+// On navy the seal's tile turns paper, so its letter turns navy.
+const dark = body => body.replace('fill="var(--paper)"', 'fill="var(--ink)"');
+const svg = (body, bg) => `<svg viewBox="0 0 48 48" fill="none" style="--bg:${bg}" aria-hidden="true">${body}</svg>`;
+document.getElementById('grid').innerHTML = logos.map(([name, note, body], i) => `
+  <article class="card">
+    <div class="hero">${svg(body, 'var(--surface)')}</div>
+    <div class="row"><span class="lockup">${svg(body, 'var(--surface)')}Investment Simulator</span></div>
+    <div class="row dark"><span class="lockup">${svg(dark(body), 'var(--ink)')}Investment Simulator</span>
+      <span class="tiny">${svg(dark(body), 'var(--ink)')}</span></div>
+    <div class="meta"><h2><b>${String(i + 1).padStart(2, '0')}</b>${name}</h2><p>${note}</p></div>
+  </article>`).join('');
+</script>
+</body>
+</html>

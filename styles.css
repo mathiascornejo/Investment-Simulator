@@ -1,17 +1,16 @@
-/* Design tokens. Calm, editorial, light: cool paper, navy ink, one marigold highlight.
-   Gain/loss colours are reserved for data, so the brand accent is neither green nor red. */
+/* Design tokens: "Quiet Paper". Warm white, hairlines, light figures and one ink colour; the data is the
+   only decoration. Gain/loss colours are reserved for data, and chart series keep their fixed palette. */
 :root {
-  --paper: #f3f5f1;
+  --paper: #fafaf8;
   --surface: #ffffff;
-  --ink: #15233b;
-  --muted: #5a6779;
-  --line: #d9dfd8;
-  --field-border: #8a94a3;
-  --marigold: #e9a21b;
+  --ink: #1a1a1a;
+  --muted: #66665f;
+  --line: #e6e6e1;
+  --field-border: #8f8f89;
+  --wash: #f0f0ec;
   --gain: #1f7a4d;
   --loss: #b3372b;
   /* System fonts only: no font downloads, nothing loaded from other sites. */
-  --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   color-scheme: light;
 }
@@ -22,6 +21,8 @@
 
 /* Opening a tab by its #link scrolls to the page top, not past the header. */
 main > section { scroll-margin-top: 14rem; }
+
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
 body {
   margin: 0;
@@ -61,45 +62,75 @@ body {
   align-items: center;
   gap: 0.6rem;
   padding-bottom: 1.25rem;
-  font: 500 1.25rem/1 var(--serif);
+  font: 500 1.125rem/1 var(--sans);
+  letter-spacing: -0.01em;
   color: inherit;
   text-decoration: none;
 }
 
 .brand svg { width: 1.75rem; height: 1.75rem; }
 
-nav {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0 clamp(0.75rem, 3vw, 1.75rem); /* tight enough to keep all three on one row at 375px */
-  align-self: flex-end;
-}
-
-nav a {
-  padding-block: 0.5rem 1rem;
-  margin-bottom: -1px; /* active bar sits on the top bar's rule */
-  border-bottom: 3px solid transparent;
+.search-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1.25rem;
+  padding: 0.4375rem 0.5rem 0.4375rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
   color: var(--muted);
-  text-decoration: none;
+}
+.search-button svg { width: 1rem; height: 1rem; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+kbd { font: 600 0.75rem/1 var(--sans); padding: 0.1875rem 0.375rem; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; color: var(--muted); }
+
+/* Floating glass tab bar. Content scrolls underneath; the blur keeps it readable over charts. */
+.tabbar {
+  position: fixed;
+  z-index: 20;
+  left: 50%;
+  bottom: max(1rem, env(safe-area-inset-bottom));
+  translate: -50% 0;
+  display: flex;
+  gap: 0.125rem;
+  padding: 0.25rem;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: 999px;
+  background: rgba(250, 250, 248, 0.62);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  box-shadow: 0 10px 30px rgba(26, 26, 26, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.9);
 }
 
-nav a:hover { color: var(--ink); }
-
-nav a[aria-current] {
+.tabbar a {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.95rem;
+  border-radius: 999px;
   color: var(--ink);
-  border-bottom-color: var(--marigold);
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background-color 0.2s, color 0.2s;
 }
+.tabbar a:active { transform: scale(0.97); }
+.tabbar a[aria-current] { background: var(--ink); color: #fff; }
+.tabbar svg { width: 1rem; height: 1rem; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+@media (max-width: 30rem) { .tabbar a { padding-inline: 0.7rem; font-size: 0.8125rem; } .tabbar svg { display: none; } }
+@media (prefers-reduced-transparency: reduce) { .tabbar { background: var(--surface); backdrop-filter: none; } }
 
 /* Page */
 main {
   flex: 1;
-  padding-block: 3.5rem 4rem;
+  padding-block: 3.5rem 7rem; /* room for the floating tab bar */
 }
 
 h1 {
   margin: 0 0 0.75rem;
-  font: 500 clamp(2.25rem, 5vw, 3rem)/1.1 var(--serif);
-  letter-spacing: -0.01em;
+  font: 300 clamp(2.25rem, 5vw, 3.25rem)/1.05 var(--sans);
+  letter-spacing: -0.03em;
 }
 
 .lede {
@@ -184,7 +215,8 @@ legend {
 /* The one big number on the page. Proportional figures: tabular ones look loose at this size. */
 #mc-failure {
   font-size: 3.5rem;
-  font-weight: 600;
+  font-weight: 300;
+  letter-spacing: -0.03em;
   line-height: 1;
   font-variant-numeric: normal;
   color: var(--ink);
@@ -240,22 +272,14 @@ button.quiet {
 
 .profile-title {
   margin: 0;
-  font: 500 1.75rem/1.2 var(--serif);
+  font: 300 1.75rem/1.2 var(--sans);
+  letter-spacing: -0.02em;
 }
 
 /* Profile: allocation bars (one hue, length carries the weight) and key facts */
-.allocation { margin-top: 0.75rem; }
-
-.allocation > div {
-  display: grid;
-  grid-template-columns: 5rem 1fr 4.5rem;
-  align-items: center;
-  gap: 0.75rem;
-  padding-block: 0.3125rem;
-}
-
-.allocation > div > :last-child { text-align: right; }
-.track > span { display: block; height: 0.75rem; border-radius: 0 4px 4px 0; background: #2a78d6; }
+.allocation { display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; margin: 0.75rem 0 0; padding: 0; list-style: none; }
+.allocation li { display: flex; align-items: center; gap: 0.4rem; font-weight: 600; }
+.allocation li span:last-child { font-weight: 400; color: var(--muted); }
 
 .facts {
   display: grid;
@@ -265,7 +289,7 @@ button.quiet {
 }
 
 .facts dt { font-size: 0.875rem; color: var(--muted); }
-.facts dd { margin: 0.125rem 0 0; font-size: 1.375rem; font-weight: 600; }
+.facts dd { margin: 0.125rem 0 0; font-size: 1.625rem; font-weight: 300; letter-spacing: -0.02em; }
 
 select,
 input:not([type="checkbox"]) {
@@ -296,34 +320,38 @@ button:disabled {
   cursor: progress;
 }
 
-/* A row of mutually exclusive choices; the pressed one is filled. */
-.segmented { display: inline-flex; }
+/* A row of mutually exclusive choices. A white pill (js/visuals.js slidingPill) glides to the pressed one. */
+.segmented { position: relative; display: inline-flex; padding: 3px; border-radius: 10px; background: var(--wash); }
 
 .segmented button {
-  padding: 0.375rem 0.75rem;
-  border: 1px solid var(--field-border);
+  position: relative;
+  z-index: 1;
+  padding: 0.3125rem 0.75rem;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+
+.segmented button[aria-pressed="true"] { color: var(--ink); }
+
+.segmented .pill {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 0;
+  border-radius: 8px;
   background: var(--surface);
-  color: var(--ink);
+  box-shadow: 0 1px 3px rgba(26, 26, 26, 0.14);
+  transition: transform 0.35s cubic-bezier(0.2, 0.9, 0.25, 1), width 0.35s cubic-bezier(0.2, 0.9, 0.25, 1);
 }
 
-.segmented button + button { margin-left: -1px; }
-.segmented button:first-child { border-radius: 8px 0 0 8px; }
-.segmented button:last-child { border-radius: 0 8px 8px 0; }
-
-.segmented button[aria-pressed="true"] {
-  background: var(--ink);
-  border-color: var(--ink);
-  color: #fff;
-}
-
-.segmented button:focus-visible { position: relative; } /* keep the focus ring above its neighbours */
-
-/* Results: one white sheet, sections separated by hairlines. */
+/* Results: no boxes, just a hairline above each sheet and each section. */
 .panel {
-  padding: 1.5rem;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 14px;
+  padding: 1.5rem 0 0;
+  border-top: 1px solid var(--ink);
 }
 
 .toolbar {
@@ -375,7 +403,8 @@ button:disabled {
 
 .block h2 {
   margin: 0;
-  font-size: 1.125rem;
+  font-size: 1.0625rem;
+  font-weight: 600;
   line-height: 1.3;
 }
 
@@ -420,3 +449,168 @@ footer {
 .suggest li[aria-selected="true"] { background: var(--ink); color: #fff; }
 .suggest .hint { margin: 0 0 0 auto; font-size: 0.8125rem; color: var(--muted); }
 .suggest li[aria-selected="true"] .hint { color: inherit; }
+.suggest .glyph { width: 1rem; height: 1rem; flex: none; color: var(--muted); }
+.suggest li[aria-selected="true"] .glyph { color: inherit; }
+
+/* ---------- Additions for the Quiet Paper redesign ---------- */
+
+/* Ticker chips (Backtester): the box looks like one field holding chips and a text input. */
+.chipbox {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375rem;
+  width: min(100%, 40rem);
+  padding: 0.3125rem;
+  border: 1px solid var(--field-border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.chipbox:focus-within { outline: 2px solid var(--ink); outline-offset: 2px; }
+.chipbox .combo { flex: 1; min-width: 10rem; }
+.chipbox input#tickers { width: 100%; border: 0; padding: 0.3125rem 0.5rem; outline: none; }
+.chips { display: contents; list-style: none; }
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0.25rem 0.25rem 0.5rem;
+  border-radius: 999px;
+  background: var(--wash);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.chip .dot { width: 0.5rem; height: 0.5rem; border-radius: 50%; }
+.chip .glyph { width: 0.9375rem; height: 0.9375rem; color: var(--muted); }
+.chip .spark { width: 3rem; height: 1rem; }
+.chip .chg { font-weight: 500; font-size: 0.8125rem; }
+.chip button {
+  display: grid;
+  place-items: center;
+  width: 1.375rem;
+  height: 1.375rem;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+.gain { color: var(--gain); }
+.loss { color: var(--loss); }
+
+/* Loading skeleton: the shape of the results, shimmering, until the prices arrive. */
+.skeleton { display: grid; gap: 0.75rem; padding-top: 1.5rem; border-top: 1px solid var(--ink); }
+.skeleton i { display: block; height: 4.5rem; border-radius: 8px; background: linear-gradient(90deg, var(--wash) 0 40%, #f8f8f5 50%, var(--wash) 60% 100%) 0 0 / 300% 100%; animation: shimmer 1.4s linear infinite; }
+.skeleton .sk-chart { height: 18rem; }
+.skeleton .sk-chart.short { height: 10rem; }
+@keyframes shimmer { from { background-position: 100% 0; } to { background-position: 0 0; } }
+
+/* Headline figures per asset; with exactly two, a head-to-head with each row's winner marked. */
+.summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: 1rem; margin-top: 1.5rem; }
+.summary.versus { grid-template-columns: 1fr auto 1fr; align-items: center; }
+.side { padding-top: 0.75rem; border-top: 1px solid var(--line); }
+.side h3 { display: flex; align-items: center; gap: 0.5rem; margin: 0 0 0.5rem; font-size: 1rem; }
+.side .big { display: block; margin-bottom: 0.5rem; font-size: 2.25rem; font-weight: 300; letter-spacing: -0.03em; line-height: 1; }
+.side dl { margin: 0; }
+.side dl div { display: flex; justify-content: space-between; gap: 1rem; padding: 0.1875rem 0; font-size: 0.9375rem; }
+.side dt { color: var(--muted); }
+.side dd { margin: 0; font-weight: 600; }
+.side dd.win::after { content: " ▲"; font-size: 0.6875rem; color: var(--ink); }
+.vs-badge { display: grid; place-items: center; width: 2.5rem; height: 2.5rem; border-radius: 50%; background: var(--ink); color: #fff; font-weight: 700; font-size: 0.8125rem; }
+@media (max-width: 40rem) { .summary.versus { grid-template-columns: 1fr; } .vs-badge { justify-self: center; } }
+
+/* Monthly returns heatmap: green gains, red losses; stronger colour, bigger move. */
+.heatmap { margin-top: 0; font-size: 0.8125rem; }
+.heatmap th, .heatmap td { padding: 0.3125rem 0.25rem; border: 2px solid var(--paper); text-align: center; }
+.heatmap thead th { font-weight: 600; color: var(--muted); }
+.heatmap tbody th { padding-right: 0.5rem; text-align: left; }
+.heatmap td.partial { opacity: 0.55; }
+.heatmap td.year { font-weight: 700; }
+
+/* Correlation grid (Creator). */
+.correlation th, .correlation td { padding: 0.375rem 0.5rem; border: 2px solid var(--paper); text-align: center; }
+.correlation thead th { font-weight: 600; color: var(--muted); }
+.correlation tbody th { text-align: left; font-weight: 600; color: var(--ink); }
+
+/* Empty state when nothing is saved yet. */
+.empty { display: flex; align-items: center; gap: 1.5rem; margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--line); color: var(--muted); }
+.empty svg { width: 8rem; flex: none; }
+.empty p { margin: 0; max-width: 28rem; }
+.empty strong { display: block; color: var(--ink); font-size: 1.125rem; font-weight: 600; }
+
+/* Monte Carlo survival gauge beside the headline. */
+.hero { align-items: center; gap: 0.5rem 1.5rem; }
+.hero p { margin: 0; }
+.gauge { width: 11rem; flex: none; }
+.gauge svg { display: block; width: 100%; }
+.gauge .needle { transform-origin: 100px 100px; transform: rotate(var(--angle)); transition: transform 1.2s cubic-bezier(0.2, 0.9, 0.25, 1); }
+.gauge.start .needle { transform: rotate(-90deg); transition: none; }
+#mc-lasted { display: block; }
+
+/* Glossary: dotted words that explain themselves. */
+button.term { padding: 0; border: 0; border-bottom: 1.5px dotted var(--field-border); background: none; color: inherit; font: inherit; text-align: inherit; cursor: help; }
+.pop {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  width: min(18rem, calc(100vw - 1rem));
+  padding: 0.75rem 0.875rem;
+  border: 0;
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 14px 36px rgba(26, 26, 26, 0.16), 0 0 0 1px rgba(26, 26, 26, 0.06);
+  font-size: 0.875rem;
+  line-height: 1.45;
+  pointer-events: none;
+}
+.pop:popover-open { animation: grow 0.22s cubic-bezier(0.2, 0.9, 0.25, 1); }
+.pop p { margin: 0.25rem 0 0; color: var(--muted); }
+.pop code { display: block; margin-top: 0.5rem; padding: 0.25rem 0.4rem; border-radius: 6px; background: var(--wash); font-size: 0.8125rem; }
+@keyframes grow { from { opacity: 0; transform: scale(0.9); } }
+
+/* Undo toast. */
+.toast {
+  position: fixed;
+  z-index: 30;
+  left: 50%;
+  bottom: 5.5rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.625rem 0.625rem 0.625rem 1rem;
+  border-radius: 12px;
+  background: var(--ink);
+  color: #fff;
+  box-shadow: 0 12px 30px rgba(26, 26, 26, 0.25);
+  translate: -50% 0;
+  transform: translateY(calc(100% + 7rem));
+  transition: transform 0.38s cubic-bezier(0.2, 0.9, 0.25, 1);
+}
+.toast.show { transform: none; }
+.toast button { padding: 0.375rem 0.75rem; border: 0; border-radius: 8px; background: rgba(255, 255, 255, 0.16); color: #fff; font-weight: 700; }
+
+/* Command palette (⌘K). */
+.palette {
+  width: min(34rem, calc(100vw - 2rem));
+  margin-top: 14vh;
+  padding: 0;
+  border: 0;
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 24px 60px rgba(26, 26, 26, 0.22), 0 0 0 1px rgba(26, 26, 26, 0.06);
+  overflow: visible;
+}
+.palette::backdrop { background: rgba(250, 250, 248, 0.6); backdrop-filter: blur(4px); }
+.palette input { width: 100%; padding: 1rem 1.125rem; border: 0; border-bottom: 1px solid var(--line); border-radius: 14px 14px 0 0; font-size: 1.125rem; outline: none; }
+.palette .suggest { position: static; margin: 0; border: 0; border-radius: 0 0 14px 14px; box-shadow: none; }
+.palette .hint { margin: 0; padding: 0.625rem 1.125rem; }
+.palette:has(.suggest:not([hidden])) > .hint { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton i { animation: none; }
+  .segmented .pill, .toast, .gauge .needle { transition: none; }
+  .pop:popover-open { animation: none; }
+}

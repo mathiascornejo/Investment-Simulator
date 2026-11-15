@@ -53,17 +53,28 @@ export function sortino(returns) {
   return (mean(returns) * TRADING_DAYS) / downside;
 }
 
-// Sensitivity to the benchmark, from daily returns on the dates both series have.
-export function beta(points, benchmark) {
+// Daily returns of two series on the dates both have: [[a, b], ...], plus the sums beta and correlation need.
+function paired(points, other) {
   const dated = (series) => series.slice(1).map((p, i) => [p.date, p.adjClose / series[i].adjClose - 1]);
-  const bench = new Map(dated(benchmark));
-  const pairs = dated(points).filter(([date]) => bench.has(date)).map(([date, r]) => [r, bench.get(date)]);
-  if (pairs.length < 2) return NaN;
+  const byDate = new Map(dated(other));
+  const pairs = dated(points).filter(([date]) => byDate.has(date)).map(([date, r]) => [r, byDate.get(date)]);
+  if (pairs.length < 2) return null;
   const meanA = mean(pairs.map(([a]) => a));
   const meanB = mean(pairs.map(([, b]) => b));
-  const cov = pairs.reduce((sum, [a, b]) => sum + (a - meanA) * (b - meanB), 0);
-  const varB = pairs.reduce((sum, [, b]) => sum + (b - meanB) ** 2, 0);
-  return cov / varB;
+  const sum = (f) => pairs.reduce((total, pair) => total + f(...pair), 0);
+  return { cov: sum((a, b) => (a - meanA) * (b - meanB)), varA: sum((a) => (a - meanA) ** 2), varB: sum((_, b) => (b - meanB) ** 2) };
+}
+
+// Sensitivity to the benchmark, from daily returns on the dates both series have.
+export function beta(points, benchmark) {
+  const p = paired(points, benchmark);
+  return p ? p.cov / p.varB : NaN;
+}
+
+// How closely two series' daily returns move together, from -1 (opposite) to 1 (in step).
+export function correlation(points, other) {
+  const p = paired(points, other);
+  return p ? p.cov / Math.sqrt(p.varA * p.varB) : NaN;
 }
 
 // Return for each calendar period in the window. keyLength 4 groups by year ("2020"), 7 by month

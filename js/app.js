@@ -15,4 +15,8 @@ addEventListener("hashchange", showTab);
 showTab();
 
 // Each tab's own code. Imported after the tabs are set up so charts measure visible containers.
-await Promise.all([import("./backtester.js"), import("./creator.js"), import("./montecarlo-tab.js")]);
+await Promise.all([import("./backtester.js"), import("./creator.js"), import("./montecarlo-tab.js"), import("./palette.js")]);
+
+// Every segmented control gets the sliding pill.
+const { slidingPill } = await import("./visuals.js");
+document.querySelectorAll(".segmented").forEach(slidingPill);

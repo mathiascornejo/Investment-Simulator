@@ -99,3 +99,10 @@ test("historicalRun follows the real months from the start date", () => {
   assert.equal(drained.ranOutIn, "2020-03"); // 400 -> 200 after February, then March's 600 empties it
   assert.equal(drained.final, 0);
 });
+
+test("simulate: sample paths follow the first runs year by year", () => {
+  const out = simulate({ monthlyReturns: [0], startValue: 1000, annualWithdrawal: 120, growth: 0, years: 3, runs: 5, samples: 2 });
+  assert.equal(out.paths.length, 2);
+  assert.deepEqual(out.paths[0].map((v) => Math.round(v)), [1000, 880, 760, 640]);
+  assert.deepEqual(simulate({ monthlyReturns: [0], startValue: 1, annualWithdrawal: 0, growth: 0, years: 1, runs: 3 }).paths, []);
+});

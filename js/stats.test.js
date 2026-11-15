@@ -77,3 +77,14 @@ test("summarize uses full years only for best and worst year", () => {
   close(out.finalValue, 20000);
   close(out.beta, 1);
 });
+
+test("correlation: in step is 1, mirror image is -1, only shared dates count", () => {
+  const a = series([["2020-01-01", 100], ["2020-01-02", 110], ["2020-01-03", 99], ["2020-01-06", 104]]);
+  const same = series([["2020-01-01", 50], ["2020-01-02", 55], ["2020-01-03", 49.5], ["2020-01-06", 52]]); // same daily returns
+  close(s.correlation(a, same), 1);
+  const returns = s.dailyReturns(a);
+  let v = 100;
+  const mirror = series([["2020-01-01", 100], ...a.slice(1).map((p, i) => [p.date, (v *= 1 - returns[i])])]);
+  close(s.correlation(a, mirror), -1);
+  assert.ok(Number.isNaN(s.correlation(a, series([["2019-01-01", 1], ["2019-01-02", 2]]))));
+});

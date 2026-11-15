@@ -5,23 +5,74 @@ import { attachTickerSearch } from "./ticker-search.js";
 import { windowOf, summarize, drawdowns, periodReturns } from "./stats.js";
 import { loadPortfolios, portfolioSeries } from "./portfolios.js";
 import { pct, num, money, moneyCompact, longDate, monthLabel, show, element } from "./format.js";
+import { sparkline, glyph, assetClass, countUp } from "./visuals.js";
+import { term } from "./glossary.js";
 
 const BENCHMARK = "SPY"; // beta is measured against this
 const START_VALUE = 10000;
 const MAX_SERIES = 10; // one colour each; see COLORS
 // Fixed order, checked colour-blind safe on white. A colour belongs to a position in the
 // ticker list, so an asset keeps its colour when others fail to load.
-const COLORS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#7b5cc4", "#8c6239", "#22a6b8", "#5d6b7a", "#a8a22a"]; // shortcut: colours 6-10 not colour-blind validated
-const INK = "#15233b";
-const MUTED = "#5a6779";
-const GRID = "#e6eae5";
-const AXIS = "#c5ccc4";
+export const COLORS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#7b5cc4", "#8c6239", "#22a6b8", "#5d6b7a", "#a8a22a"]; // shortcut: colours 6-10 not colour-blind validated
+const INK = "#1a1a1a";
+const MUTED = "#66665f";
+const GRID = "#ecece7";
+const AXIS = "#cfcfc8";
 
 const $ = (id) => document.getElementById(id);
 const form = $("compare-form");
 
-attachTickerSearch($("tickers"), { multi: true, extra: () => loadPortfolios().map((p) => [p.name, "Saved portfolio"]) });
 const status = $("compare-status");
+const input = $("tickers");
+let chips = ["SPY", "BND"]; // what is being compared, in colour order: a ticker or a saved portfolio's name
+
+// Adds a ticker or saved portfolio to the comparison and redraws (also used by the ⌘K palette).
+export function addToCompare(label) {
+  if (!chips.some((c) => c.toUpperCase() === label.toUpperCase())) chips.push(label);
+  if (location.hash !== "#backtester") location.hash = "#backtester";
+  form.requestSubmit();
+}
+
+attachTickerSearch(input, { extra: () => loadPortfolios().map((p) => [p.name, "Saved portfolio"]), onPick: addToCompare });
+input.addEventListener("keydown", (event) => {
+  if (event.key === "," && input.value.trim()) {
+    event.preventDefault();
+    chips.push(input.value.trim());
+    input.value = "";
+    renderChips();
+  } else if (event.key === "Backspace" && !input.value && chips.length) {
+    removeChip(chips.at(-1));
+  }
+});
+
+function removeChip(label) {
+  chips = chips.filter((c) => c !== label);
+  if (chips.length) return form.requestSubmit();
+  renderChips();
+  $("results").hidden = true;
+  say("");
+}
+
+// One chip per compared line: colour, kind of asset, a sparkline and the change over the chosen period.
+function renderChips(windows = []) {
+  $("chips").replaceChildren(
+    ...chips.map((label, i) => {
+      const w = windows.find((x) => x.label === label);
+      const dot = Object.assign(element("span"), { className: "dot" });
+      dot.style.background = COLORS[i] ?? MUTED;
+      const isPortfolio = loadPortfolios().some((p) => p.name === label);
+      const remove = Object.assign(element("button", "✕"), { type: "button", title: `Remove ${label}` });
+      remove.setAttribute("aria-label", `Remove ${label}`);
+      remove.addEventListener("click", () => removeChip(label));
+      const parts = [dot, glyph(isPortfolio ? "portfolio" : assetClass(label)), label];
+      if (w) {
+        const change = w.points.at(-1).adjClose / w.points[0].adjClose - 1;
+        parts.push(sparkline(w.points, w.color), Object.assign(element("span", pct.format(change)), { className: `chg ${change < 0 ? "loss" : "gain"}` }));
+      }
+      return Object.assign(element("li", ...parts, remove), { className: "chip" });
+    }),
+  );
+}
 
 const state = {
   series: [], // [{ label, color, points }]: a ticker or a saved portfolio
@@ -33,6 +84,8 @@ const state = {
   preset: "1",
   log: false,
   keyLength: 4, // 4 = returns by year, 7 = by month
+  heat: 0, // which line the monthly heatmap shows
+  windows: [],
 };
 let charts; // created on first draw, once the containers are visible and have a size
 
@@ -85,7 +138,7 @@ function applyPreset(months) {
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   // Saved portfolios are typed by name (names may hold spaces), so lift those out; what's left is tickers.
-  let text = $("tickers").value;
+  let text = [...chips, input.value].filter((t) => t.trim()).join(", ");
   const picked = [];
   for (const p of [...loadPortfolios()].sort((a, b) => b.name.length - a.name.length)) {
     const name = p.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -107,12 +160,17 @@ form.addEventListener("submit", async (event) => {
     return;
   }
 
-  const button = form.querySelector("button");
+  chips = lines.map((l) => l.label);
+  input.value = "";
+  renderChips();
+  const button = form.querySelector("button[type=submit]");
   button.disabled = true;
+  $("bt-skeleton").hidden = !$("results").hidden;
   say(`Loading ${lines.map((l) => l.label).join(", ")}…`);
   const wanted = [...new Set([...lines.flatMap((l) => l.tickers), BENCHMARK])];
   const loaded = await Promise.allSettled(wanted.map(fetchPrices));
   button.disabled = false;
+  $("bt-skeleton").hidden = true;
   const prices = {};
   const errors = {};
   wanted.forEach((t, i) => {
@@ -182,6 +240,13 @@ $("log-scale").addEventListener("change", (event) => {
   draw();
 });
 
+$("heat-pick").addEventListener("click", (event) => {
+  const index = event.target.dataset.index;
+  if (index === undefined) return;
+  state.heat = Number(index);
+  drawHeatmap(state.windows);
+});
+
 $("period").addEventListener("click", (event) => {
   const keyLength = event.target.dataset.keyLength;
   if (!keyLength) return;
@@ -203,15 +268,20 @@ function draw() {
     Object.assign($(id), { min: state.min, max: state.max, value });
   }
 
+  state.windows = windows;
   $("legend").replaceChildren(...windows.map((w) => element("li", swatch(w.color), w.label)));
-  drawTable(windows);
+  renderChips(windows);
+  const stats = windows.map((w) => summarize(w.points, state.benchmark, w.nextDate, START_VALUE));
+  drawTable(windows, stats);
+  drawSummary(windows, stats);
+  drawHeatmap(windows);
 
   if (!window.echarts) {
     say("The chart library didn't load, so only the table is shown. Check your connection and reload.", true);
     return;
   }
   if (!charts) {
-    charts = Object.fromEntries(["growth", "returns", "drawdown"].map((n) => [n, echarts.init($(`${n}-chart`))]));
+    charts = Object.fromEntries(["growth", "returns", "drawdown", "scatter"].map((n) => [n, echarts.init($(`${n}-chart`))]));
     echarts.connect([charts.growth, charts.drawdown]); // hovering one moves the crosshair on the other
     const resize = () => Object.values(charts).forEach((c) => c.resize());
     addEventListener("resize", resize);
@@ -220,6 +290,7 @@ function draw() {
   drawGrowth(windows);
   drawReturns(windows);
   drawDrawdowns(windows);
+  drawScatter(windows, stats);
 }
 
 function swatch(color) {
@@ -229,8 +300,7 @@ function swatch(color) {
   return node;
 }
 
-function drawTable(windows) {
-  const stats = windows.map((w) => summarize(w.points, state.benchmark, w.nextDate, START_VALUE));
+function drawTable(windows, stats) {
   const columnHeads = windows.map((w) => Object.assign(element("th", swatch(w.color), w.label), { scope: "col" }));
   if (windows.length === 2) {
     columnHeads.push(Object.assign(element("th", `${windows[0].label} − ${windows[1].label}`), { scope: "col" }));
@@ -239,7 +309,7 @@ function drawTable(windows) {
   const rows = METRICS.map(([label, key, format]) => {
     const cells = stats.map((s) => element("td", show(s[key], format)));
     if (windows.length === 2) cells.push(element("td", showDifference(stats[0][key], stats[1][key], format)));
-    return element("tr", Object.assign(element("th", label), { scope: "row" }), ...cells);
+    return element("tr", Object.assign(element("th", term(label)), { scope: "row" }), ...cells);
   });
   $("stats").replaceChildren(element("thead", element("tr", element("td"), ...columnHeads)), element("tbody", ...rows));
 }
@@ -320,12 +390,22 @@ function drawDrawdowns(windows) {
       ...base,
       xAxis: { ...base.xAxis, type: "time" },
       yAxis: { ...base.yAxis, type: "value", max: 0, axisLabel: { ...base.yAxis.axisLabel, formatter: (v) => pctAxis.format(v) } },
-      series: windows.map((w) =>
-        line(w, drawdowns(w.points).map((d) => [Date.parse(d.date), d.value]), {
+      series: windows.map((w) => {
+        const dd = drawdowns(w.points);
+        const deepest = dd.reduce((a, b) => (b.value < a.value ? b : a));
+        return line(w, dd.map((d) => [Date.parse(d.date), d.value]), {
           lineStyle: { width: 1.5, color: w.color },
-          areaStyle: { color: w.color, opacity: 0.1 },
-        }),
-      ),
+          // Underwater: the deeper below the previous high, the stronger the colour.
+          areaStyle: { color: { type: "linear", x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: `${w.color}0d` }, { offset: 1, color: `${w.color}66` }] } },
+          markPoint: deepest.value < 0 ? {
+            symbol: "circle",
+            symbolSize: 9,
+            itemStyle: { color: "#fff", borderColor: w.color, borderWidth: 2 },
+            label: { position: "bottom", color: INK, fontSize: 11, fontWeight: 600, formatter: () => pctAxis.format(deepest.value) },
+            data: [{ coord: [Date.parse(deepest.date), deepest.value] }],
+          } : undefined,
+        });
+      }),
     },
     true,
   );
@@ -350,6 +430,7 @@ function drawReturns(windows) {
         barGap: "10%",
         itemStyle: { color: w.color },
         emphasis: { disabled: true },
+        markPoint: badges(byPeriod[i], windows.length),
         data: periods.map((key) => {
           const p = byPeriod[i].get(key);
           if (!p) return null;
@@ -362,4 +443,123 @@ function drawReturns(windows) {
   );
 }
 
+// Best and worst full period of a line, called out on the bars. Only for one or two lines: more gets cluttered.
+function badges(periods, lineCount) {
+  const full = [...periods.values()].filter((p) => !p.partial);
+  if (lineCount > 2 || full.length < 2) return undefined;
+  const best = full.reduce((a, b) => (b.value > a.value ? b : a));
+  const worst = full.reduce((a, b) => (b.value < a.value ? b : a));
+  const badge = (p, text, label) => ({ coord: [p.period, p.value], label: { formatter: `${text} ${pctAxis.format(p.value)}`, ...label } });
+  return {
+    symbol: "circle",
+    symbolSize: 0,
+    label: { fontSize: 11, fontWeight: 700, padding: [3, 7], borderRadius: 8 },
+    data: [
+      badge(best, "Best", { position: "top", color: "#fff", backgroundColor: INK }),
+      badge(worst, "Worst", { position: "bottom", color: "#b3372b", backgroundColor: "#fff", borderColor: "#b3372b", borderWidth: 1 }),
+    ],
+  };
+}
+
+// Headline figures per line. Exactly two lines become a head-to-head, with the better value in each row marked.
+function drawSummary(windows, stats) {
+  const rows = [
+    ["Annualised return", "cagr", pct, 1],
+    ["Volatility (annualised)", "volatility", pct, -1],
+    ["Maximum drawdown", "maxDrawdown", pct, 1],
+    ["Sharpe ratio", "sharpe", num, 1],
+  ];
+  const versus = windows.length === 2;
+  const sides = windows.map((w, i) => {
+    const big = Object.assign(element("strong"), { className: "big" });
+    countUp(big, stats[i].finalValue, money);
+    const facts = rows.map(([label, key, format, better]) => {
+      const value = element("dd");
+      countUp(value, stats[i][key], format);
+      const other = versus ? stats[1 - i][key] : NaN;
+      if (Number.isFinite(other) && Number.isFinite(stats[i][key]) && (stats[i][key] - other) * better > 0) value.classList.add("win");
+      return element("div", element("dt", term(label)), value);
+    });
+    return Object.assign(element("section", element("h3", swatch(w.color), w.label), big, element("dl", ...facts)), { className: "side" });
+  });
+  if (versus) sides.splice(1, 0, Object.assign(element("span", "VS"), { className: "vs-badge", ariaHidden: "true" }));
+  $("summary").className = `summary${versus ? " versus" : ""}`;
+  $("summary").replaceChildren(...sides);
+}
+
+// Every month of the chosen line, a row per year: green gains, red losses, stronger for bigger moves.
+const pctShort = new Intl.NumberFormat(undefined, { style: "percent", minimumFractionDigits: 1, maximumFractionDigits: 1, signDisplay: "exceptZero" });
+const MONTHS = Array.from({ length: 12 }, (_, m) => new Date(Date.UTC(2000, m)).toLocaleDateString(undefined, { month: "short", timeZone: "UTC" }));
+
+function heatCell(p, scale) {
+  if (!p) return element("td");
+  const strength = 0.1 + 0.75 * Math.min(1, Math.abs(p.value) / scale);
+  const cell = element("td", pctShort.format(p.value));
+  cell.style.background = p.value >= 0 ? `rgba(31, 122, 77, ${strength})` : `rgba(179, 55, 43, ${strength})`;
+  if (strength > 0.55) cell.style.color = "#fff";
+  if (p.partial) {
+    cell.classList.add("partial");
+    cell.title = "Part of the period only";
+  }
+  return cell;
+}
+
+function drawHeatmap(windows) {
+  state.heat = Math.min(state.heat, windows.length - 1);
+  $("heat-pick").replaceChildren(...windows.map((w, i) => {
+    const b = Object.assign(element("button", w.label), { type: "button" });
+    b.dataset.index = i;
+    b.setAttribute("aria-pressed", i === state.heat);
+    return b;
+  }));
+  $("heat-pick").hidden = windows.length < 2;
+  const w = windows[state.heat];
+  const months = new Map(periodReturns(w.points, 7, w.nextDate).map((p) => [p.period, p]));
+  const years = periodReturns(w.points, 4, w.nextDate);
+  const head = element("tr", Object.assign(element("th", "Year"), { scope: "col" }), ...MONTHS.map((m) => Object.assign(element("th", m), { scope: "col" })), Object.assign(element("th", "Year"), { scope: "col" }));
+  const body = years.map((y) =>
+    element(
+      "tr",
+      Object.assign(element("th", y.period), { scope: "row" }),
+      ...MONTHS.map((_, m) => heatCell(months.get(`${y.period}-${String(m + 1).padStart(2, "0")}`), 0.1)),
+      Object.assign(heatCell(y, 0.3), { className: `year${y.partial ? " partial" : ""}` }),
+    ),
+  );
+  $("heatmap").replaceChildren(element("thead", head), element("tbody", ...body));
+  $("heatmap").setAttribute("aria-label", `Monthly returns of ${w.label}`);
+}
+
+// Volatility across, return up: one dot per line, coloured like its line.
+function drawScatter(windows, stats) {
+  const annual = stats.every((s) => s.cagr !== null);
+  const yName = annual ? "Annualised return" : "Total return";
+  $("scatter-note").textContent = `Each dot is one compared asset: further right swings more, higher ${annual ? "grew faster per year" : "gained more over the period (it is under a year, so returns are not annualised)"}.`;
+  const base = frame(String, pct);
+  const axis = (name) => ({ name, nameLocation: "end", nameTextStyle: { color: MUTED, fontSize: 12 }, type: "value", scale: true, axisLabel: { ...base.yAxis.axisLabel, formatter: (v) => pctAxis.format(v) } });
+  charts.scatter.setOption(
+    {
+      ...base,
+      grid: { left: 8, right: 80, top: 28, bottom: 8, containLabel: true },
+      tooltip: {
+        ...base.tooltip,
+        trigger: "item",
+        formatter: (item) => `<strong>${escapeHtml(item.seriesName)}</strong><div>Volatility ${pct.format(item.value[0])}</div><div>${yName} ${pct.format(item.value[1])}</div>`,
+      },
+      xAxis: { ...base.xAxis, ...axis("Volatility") },
+      yAxis: { ...base.yAxis, ...axis(yName) },
+      series: windows.map((w, i) => ({
+        name: w.label,
+        type: "scatter",
+        symbolSize: 14,
+        itemStyle: { color: w.color, borderColor: "#fff", borderWidth: 2 },
+        label: { show: true, position: "right", formatter: "{a}", color: INK, fontWeight: 600 },
+        emphasis: { scale: 1.2 },
+        data: [[stats[i].volatility, annual ? stats[i].cagr : stats[i].totalReturn]],
+      })),
+    },
+    true,
+  );
+}
+
+renderChips();
 form.requestSubmit(); // open with the default comparison already drawn

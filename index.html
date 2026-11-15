@@ -13,19 +13,34 @@
 <body>
   <header class="topbar">
     <a class="brand" href="#backtester">
-      <svg viewBox="0 0 32 32" aria-hidden="true">
-        <path d="M3 18 29 4v24Z" fill="currentColor" opacity=".1"/>
-        <path d="M3 18 29 4M3 18l26 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-        <path d="M3 18 29 13" fill="none" stroke="var(--marigold)" stroke-width="2.5" stroke-linecap="round"/>
+      <svg viewBox="0 0 48 48" fill="none" aria-hidden="true">
+        <circle cx="24" cy="26" r="11" fill="#e9a21b"/>
+        <path d="M4 34h40" stroke="var(--paper)" stroke-width="7"/>
+        <path d="M4 34 13 28l7 4 9-9 6 4 9-9" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M4 40h40" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
       </svg>
       Investment Simulator
     </a>
-    <nav aria-label="Sections">
-      <a href="#backtester">Backtester</a>
-      <a href="#creator">Portfolio creator</a>
-      <a href="#monte-carlo">Monte Carlo</a>
-    </nav>
+    <button type="button" id="open-palette" class="search-button">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      Search <kbd>⌘K</kbd>
+    </button>
   </header>
+
+  <!-- Floating glass tab bar: the page scrolls underneath it. -->
+  <nav class="tabbar" aria-label="Sections">
+    <a href="#backtester"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 6-7"/></svg>Backtester</a>
+    <a href="#creator"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 2 8l10 5 10-5-10-5z"/><path d="m2 13 10 5 10-5"/></svg>Portfolio creator</a>
+    <a href="#monte-carlo"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="4"/><circle cx="8.5" cy="8.5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="15.5" cy="15.5" r="1"/></svg>Monte Carlo</a>
+  </nav>
+
+  <dialog id="palette" class="palette" aria-label="Search">
+    <form method="dialog" id="palette-form">
+      <label for="palette-input" class="visually-hidden">Ticker, saved portfolio or tab</label>
+      <input id="palette-input" autocomplete="off" spellcheck="false" placeholder="Ticker, saved portfolio or tab">
+    </form>
+    <p class="hint">Enter adds a ticker or portfolio to the Backtester comparison. Esc closes.</p>
+  </dialog>
 
   <main>
     <section id="backtester">
@@ -33,13 +48,17 @@
       <p class="lede">Compare portfolios and single assets over any period: returns, drawdowns and risk, side by side.</p>
 
       <form id="compare-form">
-        <label for="tickers">Tickers to compare</label>
+        <label for="tickers">Tickers and portfolios to compare</label>
         <div class="row">
-          <input id="tickers" value="SPY, BND" autocomplete="off" spellcheck="false">
+          <div class="chipbox">
+            <ul id="chips" class="chips" aria-label="Compared"></ul>
+            <input id="tickers" autocomplete="off" spellcheck="false" placeholder="Add a ticker or portfolio">
+          </div>
           <button type="submit">Compare</button>
         </div>
       </form>
       <p id="compare-status" class="status" role="status"></p>
+      <div id="bt-skeleton" class="skeleton" aria-hidden="true" hidden><i class="sk-row"></i><i class="sk-chart"></i><i class="sk-chart short"></i></div>
 
       <div id="results" class="panel" hidden>
         <div class="toolbar">
@@ -55,6 +74,7 @@
           <label>To <input type="date" id="to"></label>
         </div>
         <ul id="legend" class="legend" aria-label="Assets"></ul>
+        <div id="summary" class="summary"></div>
 
         <div class="block">
           <div class="block-head">
@@ -76,8 +96,23 @@
         </div>
 
         <div class="block">
-          <h2>Drawdowns</h2>
+          <h2><span data-term="drawdown">Drawdowns</span></h2>
+          <p class="hint">Below the line is below the previous high. The deepest point of each is pinned.</p>
           <div id="drawdown-chart" class="chart chart-short"></div>
+        </div>
+
+        <div class="block">
+          <div class="block-head">
+            <h2>Monthly returns</h2>
+            <div id="heat-pick" class="segmented" role="group" aria-label="Show monthly returns for"></div>
+          </div>
+          <div class="table-scroll"><table id="heatmap" class="heatmap"></table></div>
+        </div>
+
+        <div class="block">
+          <h2>Risk and return</h2>
+          <p id="scatter-note" class="hint">Each dot is one compared asset: further right swings more, higher grew faster.</p>
+          <div id="scatter-chart" class="chart"></div>
         </div>
 
         <div class="block">
@@ -135,11 +170,26 @@
         <p id="portfolio-status" class="status" role="status"></p>
       </form>
 
+      <div id="creator-empty" class="empty" hidden>
+        <svg viewBox="0 0 120 80" aria-hidden="true">
+          <path d="M30 37l13 6.5-13 6.5-13-6.5z" fill="#ececE7"/><path d="M17 43.5l13 6.5v12l-13-6.5z" fill="#dcdcd6"/><path d="M30 50l13-6.5v12L30 62z" fill="#cfcfc8"/>
+          <path d="M58 21l13 6.5-13 6.5-13-6.5z" fill="#6b6b66"/><path d="M45 27.5l13 6.5v28l-13-6.5z" fill="#3d3d3a"/><path d="M58 34l13-6.5v28L58 62z" fill="#1a1a1a"/>
+          <path d="M86 31l13 6.5-13 6.5-13-6.5z" fill="#bdbdb6"/><path d="M73 37.5l13 6.5v18l-13-6.5z" fill="#a3a39c"/><path d="M86 44l13-6.5v18L86 62z" fill="#8f8f89"/>
+        </svg>
+        <p><strong>No portfolios yet</strong>Save the one above (or change it first) and it appears in the Backtester and Monte Carlo tabs.</p>
+      </div>
+
       <div id="profile" class="panel" hidden>
         <h2 id="profile-title" class="profile-title"></h2>
         <div class="block">
           <h2>Allocation</h2>
-          <div id="allocation" class="allocation"></div>
+          <div id="treemap" class="chart chart-short"></div>
+          <ul id="allocation" class="allocation"></ul>
+        </div>
+        <div class="block" id="correlation-block">
+          <h2><span data-term="correlation">How the holdings move together</span></h2>
+          <p class="hint">Correlation of daily returns over the measured period.</p>
+          <div class="table-scroll"><table id="correlation" class="correlation"></table></div>
         </div>
         <div class="block">
           <h2>Risk and return</h2>
@@ -197,9 +247,13 @@
         <button type="submit">Run simulation</button>
         <p id="mc-status" class="status" role="status"></p>
       </form>
+      <div id="mc-skeleton" class="skeleton" aria-hidden="true" hidden><i class="sk-row"></i><i class="sk-chart"></i></div>
 
       <div id="mc-results" class="panel" hidden>
-        <p class="hero"><span id="mc-failure"></span> <span id="mc-failure-label"></span></p>
+        <div class="hero">
+          <div id="mc-gauge" class="gauge"></div>
+          <p><span id="mc-failure"></span> <span id="mc-failure-label"></span><span id="mc-lasted" class="hint"></span></p>
+        </div>
         <dl id="mc-tiles" class="facts"></dl>
 
         <div class="block">

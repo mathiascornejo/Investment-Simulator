@@ -7,6 +7,8 @@ import { loadPortfolios, portfolioSeries } from "./portfolios.js";
 import { simulate, crisisTest, historicalRun, CRISES } from "./montecarlo.js";
 import { pct, money, moneyCompact, longDate, monthLabel, element } from "./format.js";
 import { frame } from "./backtester.js";
+import { gauge, countUp, reducedMotion } from "./visuals.js";
+import { term } from "./glossary.js";
 
 
 const BENCHMARK = "SPY";
@@ -15,6 +17,8 @@ const MIN_MONTHS = 24; // fewer real months than this is too little history to r
 const MEDIAN = "#2a78d6";
 const MIDDLE_50 = "#9ec5f4";
 const MIDDLE_80 = "#cde2fb";
+const SAMPLE = "rgba(26, 26, 26, 0.16)"; // individual runs, drawn faintly behind the bands
+const SAMPLES = 30;
 
 const $ = (id) => document.getElementById(id);
 attachTickerSearch($("mc-ticker"));
@@ -75,14 +79,16 @@ form.addEventListener("submit", async (event) => {
 
   const name = portfolio ? portfolio.name : ticker;
   const tickers = [...new Set([...(portfolio ? portfolio.holdings.map((h) => h.ticker) : [ticker]), BENCHMARK])];
-  const button = form.querySelector("button");
+  const button = form.querySelector("button[type=submit]");
   button.disabled = true;
+  $("mc-skeleton").hidden = !$("mc-results").hidden;
   say(`Loading ${name}…`);
   let prices;
   try {
     const loaded = await Promise.all(tickers.map(fetchPrices));
     prices = Object.fromEntries(tickers.map((t, i) => [t, loaded[i]]));
   } catch (error) {
+    $("mc-skeleton").hidden = true;
     return say(`${name} didn't load: ${error.message.replace(/\.$/, "")}.`, true);
   } finally {
     button.disabled = false;
@@ -92,6 +98,7 @@ form.addEventListener("submit", async (event) => {
   // Whole calendar months only: a part-month would count as a full month's return.
   const months = points.length > 2 ? periodReturns(points, 7).filter((m) => !m.partial) : [];
   if (months.length < MIN_MONTHS) {
+    $("mc-skeleton").hidden = true;
     return say(`${name} has under two years of history, which is too little to simulate from.`, true);
   }
 
@@ -99,27 +106,38 @@ form.addEventListener("submit", async (event) => {
   button.disabled = true;
   let result;
   try {
-    result = await simulateAway({ monthlyReturns: months.map((m) => m.value), startValue, annualWithdrawal, growth, years, runs });
+    result = await simulateAway({ monthlyReturns: months.map((m) => m.value), startValue, annualWithdrawal, growth, years, runs, samples: SAMPLES });
   } catch (error) {
     return say(`The simulation failed: ${error.message}`, true);
   } finally {
     button.disabled = false;
+    $("mc-skeleton").hidden = true;
   }
-  const { failureRate, bands } = result;
+  const { failureRate, bands, paths } = result;
   say("");
 
-  $("mc-failure").textContent = rate.format(failureRate);
+  countUp($("mc-failure"), failureRate, rate);
   $("mc-failure-label").textContent = `of ${runs.toLocaleString()} runs ran out of money within ${years} ${years === 1 ? "year" : "years"}`;
+  $("mc-lasted").textContent = `The dial shows the other ${rate.format(1 - failureRate)}: runs that lasted.`;
+  // The needle swings from empty to the result once the dial is on screen.
+  $("mc-gauge").replaceChildren(gauge(1 - failureRate));
+  $("mc-gauge").classList.add("start");
   const tiles = [
     ["Median ending balance", bands.p50.at(-1)],
     ["Poor outcome (10th percentile)", bands.p10.at(-1)],
     ["Strong outcome (90th percentile)", bands.p90.at(-1)],
   ];
-  $("mc-tiles").replaceChildren(...tiles.map(([label, value]) => element("div", element("dt", label), element("dd", money.format(value)))));
+  $("mc-tiles").replaceChildren(
+    ...tiles.map(([label, value]) => {
+      const dd = element("dd");
+      countUp(dd, value, money);
+      return element("div", element("dt", label.includes("percentile") ? term(label, "percentile") : label), dd);
+    }),
+  );
 
   $("mc-chart-title").textContent = `Range of outcomes for ${name} over ${years} ${years === 1 ? "year" : "years"}`;
   $("mc-legend").replaceChildren(
-    ...[["Median run", MEDIAN], ["Middle 50% of runs", MIDDLE_50], ["Middle 80% of runs", MIDDLE_80]].map(([label, color]) => {
+    ...[["Median run", MEDIAN], ["Middle 50% of runs", MIDDLE_50], ["Middle 80% of runs", MIDDLE_80], [`${paths.length} sample runs`, SAMPLE]].map(([label, color]) => {
       const swatch = Object.assign(element("span"), { className: "swatch" });
       swatch.style.background = color;
       return element("li", swatch, label);
@@ -133,10 +151,11 @@ form.addEventListener("submit", async (event) => {
 
   drawCrises(points, prices[BENCHMARK], { startValue, annualWithdrawal, growth });
   $("mc-results").hidden = false;
-  drawCone(bands);
+  requestAnimationFrame(() => requestAnimationFrame(() => $("mc-gauge").classList.remove("start")));
+  drawCone(bands, paths);
 });
 
-function drawCone(bands) {
+function drawCone(bands, paths) {
   if (!window.echarts) return say("The chart library didn't load, so the chart is missing. Check your connection and reload.", true);
   if (!chart) {
     chart = echarts.init($("mc-chart"));
@@ -147,6 +166,8 @@ function drawCone(bands) {
   const base = frame(String, money);
   const gap = (upper, lower) => upper.map((v, i) => v - lower[i]);
   // Stacked areas draw the bands: an invisible base at the 10th percentile, then the gaps above it.
+  // Sample runs draw themselves first, left to right; the bands fade in once they are done.
+  const animate = !reducedMotion();
   const layer = (name, data, color) => ({
     name,
     type: "line",
@@ -154,8 +175,23 @@ function drawCone(bands) {
     data,
     showSymbol: false,
     lineStyle: { opacity: 0 },
-    areaStyle: { color: color ?? "transparent", opacity: 1 },
+    areaStyle: { color: color ?? "transparent", opacity: 0.92 },
     emphasis: { disabled: true },
+    animationDelay: 1100,
+    animationDuration: 500,
+  });
+  const sample = (data, i) => ({
+    name: "Sample run",
+    type: "line",
+    data,
+    showSymbol: false,
+    silent: true,
+    z: 3,
+    lineStyle: { width: 1, color: SAMPLE },
+    emphasis: { disabled: true },
+    animationDuration: 1100,
+    animationDelay: i * 12,
+    tooltip: { show: false },
   });
   const rows = [
     ["Strong outcome (90th percentile)", "p90"],
@@ -167,8 +203,11 @@ function drawCone(bands) {
   chart.setOption(
     {
       ...base,
+      animation: animate,
       tooltip: {
         ...base.tooltip,
+        // Pinned top-left so the readout never covers the cone it describes.
+        position: (point, params, dom, rect, size) => [Math.min(point[0] + 16, size.viewSize[0] - size.contentSize[0]), 8],
         formatter: (items) => {
           const year = items[0].dataIndex;
           return (
@@ -178,13 +217,15 @@ function drawCone(bands) {
         },
       },
       xAxis: { ...base.xAxis, type: "category", boundaryGap: false, data: bands.p50.map((_, year) => year) },
-      yAxis: { ...base.yAxis, type: "value", min: 0, axisLabel: { ...base.yAxis.axisLabel, formatter: (v) => moneyCompact.format(v) } },
+      // Capped just above the 90th percentile: a few wild sample runs would otherwise squash the cone.
+      yAxis: { ...base.yAxis, type: "value", min: 0, max: Number((Math.max(...bands.p90) * 1.1).toPrecision(2)), axisLabel: { ...base.yAxis.axisLabel, showMaxLabel: false, formatter: (v) => moneyCompact.format(v) } },
       series: [
+        ...paths.map(sample),
         layer("10th percentile", bands.p10),
         layer("10th to 25th", gap(bands.p25, bands.p10), MIDDLE_80),
         layer("25th to 75th", gap(bands.p75, bands.p25), MIDDLE_50),
         layer("75th to 90th", gap(bands.p90, bands.p75), MIDDLE_80),
-        { name: "Median", type: "line", data: bands.p50, showSymbol: false, lineStyle: { width: 2, color: MEDIAN }, itemStyle: { color: MEDIAN }, emphasis: { disabled: true } },
+        { name: "Median", type: "line", data: bands.p50, showSymbol: false, z: 4, lineStyle: { width: 2, color: MEDIAN }, itemStyle: { color: MEDIAN }, emphasis: { disabled: true }, animationDelay: 1100 },
       ],
     },
     true,

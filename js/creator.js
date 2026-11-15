@@ -1,9 +1,12 @@
 // Portfolio creator tab: edit and save portfolios, and show a profile of the saved one.
 import { fetchPrices } from "./data.js";
-import { summarize } from "./stats.js";
+import { summarize, correlation, windowOf } from "./stats.js";
 import { REBALANCE_RULES, loadPortfolios, savePortfolios, portfolioSeries } from "./portfolios.js";
 import { attachTickerSearch } from "./ticker-search.js";
 import { pct, num, longDate, show, element } from "./format.js";
+import { COLORS, frame } from "./backtester.js";
+import { glyph, assetClass, countUp, toast } from "./visuals.js";
+import { term } from "./glossary.js";
 
 const BENCHMARK = "SPY";
 const MAX_HOLDINGS = 10; // each holding is one request to Tiingo, and the free plan allows 50 an hour
@@ -14,6 +17,10 @@ const form = $("portfolio-form");
 const picker = $("portfolio-pick");
 const status = $("portfolio-status");
 let editing = ""; // name of the saved portfolio in the form; "" while creating a new one
+let treemap; // ECharts instance, created the first time a profile is shown
+
+const showEmpty = () => ($("creator-empty").hidden = loadPortfolios().length > 0);
+addEventListener("portfolios-changed", showEmpty);
 
 function say(text, isError = false) {
   status.textContent = text;
@@ -72,6 +79,7 @@ function edit(portfolio) {
   $("band-field").hidden = $("rebalance").value !== "band";
   $("delete-portfolio").hidden = !portfolio;
   $("profile").hidden = true;
+  showEmpty();
   showTotal();
   say("");
   if (portfolio) showProfile(portfolio);
@@ -130,12 +138,21 @@ form.addEventListener("submit", async (event) => {
   say(`Saved ${portfolio.name}. It is now available in the Backtester.`);
 });
 
+// Deletes at once; the toast's Undo puts it back where it was.
 $("delete-portfolio").addEventListener("click", () => {
-  if (!confirm(`Delete the portfolio ${editing}? This can't be undone.`)) return;
-  const name = editing;
-  savePortfolios(loadPortfolios().filter((p) => p.name !== name));
+  const saved = loadPortfolios();
+  const at = saved.findIndex((p) => p.name === editing);
+  if (at === -1) return;
+  const [removed] = saved.splice(at, 1);
+  savePortfolios(saved);
   edit();
-  say(`Deleted ${name}.`);
+  toast(`Deleted ${removed.name}`, "Undo", () => {
+    const now = loadPortfolios().filter((p) => p.name !== removed.name);
+    now.splice(at, 0, removed);
+    savePortfolios(now);
+    edit(removed);
+    say(`Restored ${removed.name}.`);
+  });
 });
 
 // The profile of a saved portfolio
@@ -155,12 +172,14 @@ async function showProfile(portfolio) {
   const count = portfolio.holdings.length;
   $("profile-title").textContent = portfolio.name;
 
-  const sorted = [...portfolio.holdings].sort((a, b) => b.weight - a.weight);
+  // Colour follows the holding's place in the portfolio, as in the Backtester.
+  const colored = portfolio.holdings.map((h, i) => ({ ...h, color: COLORS[i] }));
+  const sorted = [...colored].sort((a, b) => b.weight - a.weight);
   $("allocation").replaceChildren(
     ...sorted.map((h) => {
-      const bar = element("span");
-      bar.style.width = `${h.weight}%`;
-      return element("div", element("span", h.ticker), Object.assign(element("span", bar), { className: "track" }), element("span", `${num.format(h.weight)}%`));
+      const dot = Object.assign(element("span"), { className: "swatch" });
+      dot.style.background = h.color;
+      return element("li", dot, glyph(assetClass(h.ticker)), h.ticker, element("span", `${num.format(h.weight)}%`));
     }),
   );
 
@@ -180,8 +199,72 @@ async function showProfile(portfolio) {
     ["Sharpe ratio", stats.sharpe, num],
     [`Beta vs ${BENCHMARK}`, stats.beta, num],
   ];
-  $("facts").replaceChildren(...facts.map(([label, value, format]) => element("div", element("dt", label), element("dd", show(value, format)))));
+  $("facts").replaceChildren(
+    ...facts.map(([label, value, format]) => {
+      const dd = element("dd");
+      countUp(dd, value, format);
+      return element("div", element("dt", term(label)), dd);
+    }),
+  );
+  drawCorrelation(portfolio, prices, points);
   $("profile").hidden = false;
+  drawTreemap(sorted);
+}
+
+// Weights as tiles: area is the weight.
+function drawTreemap(holdings) {
+  if (!window.echarts) return;
+  if (!treemap) {
+    treemap = echarts.init($("treemap"));
+    addEventListener("resize", () => treemap.resize());
+    addEventListener("hashchange", () => treemap.resize());
+  }
+  const base = frame(String, num);
+  treemap.setOption(
+    {
+      aria: base.aria,
+      textStyle: base.textStyle,
+      animation: false,
+      tooltip: { ...base.tooltip, trigger: "item", formatter: (item) => `<strong>${item.name}</strong> ${num.format(item.value)}%` },
+      series: [{
+        type: "treemap",
+        roam: false,
+        nodeClick: false,
+        breadcrumb: { show: false },
+        left: 0, right: 0, top: 0, bottom: 0,
+        itemStyle: { borderColor: "#fafaf8", borderWidth: 3, gapWidth: 3, borderRadius: 6 },
+        label: { formatter: (item) => `${item.name}\n${num.format(item.value)}%`, fontWeight: 600, fontSize: 13, lineHeight: 18 },
+        data: holdings.map((h) => ({ name: h.ticker, value: h.weight, itemStyle: { color: h.color } })),
+      }],
+    },
+    true,
+  );
+}
+
+// Correlation of each pair of holdings' daily returns over the period every holding has.
+function drawCorrelation(portfolio, prices, points) {
+  const tickers = portfolio.holdings.map((h) => h.ticker);
+  $("correlation-block").hidden = tickers.length < 2;
+  if (tickers.length < 2) return;
+  const series = tickers.map((t) => windowOf(prices[t], points[0].date, points.at(-1).date).points);
+  const head = element("tr", element("td"), ...tickers.map((t) => Object.assign(element("th", t), { scope: "col" })));
+  const rows = tickers.map((t, i) =>
+    element(
+      "tr",
+      Object.assign(element("th", t), { scope: "row" }),
+      ...tickers.map((_, j) => {
+        const c = i === j ? 1 : correlation(series[i], series[j]);
+        const cell = element("td", show(c, num));
+        if (Number.isFinite(c)) {
+          // Blue for moving together, orange for moving apart; stronger for bigger numbers.
+          cell.style.background = c >= 0 ? `rgba(42, 120, 214, ${0.08 + 0.8 * c})` : `rgba(235, 104, 52, ${0.08 + 0.8 * -c})`;
+          if (Math.abs(c) > 0.55) cell.style.color = "#fff";
+        }
+        return cell;
+      }),
+    ),
+  );
+  $("correlation").replaceChildren(element("thead", head), element("tbody", ...rows));
 }
 
 // Start

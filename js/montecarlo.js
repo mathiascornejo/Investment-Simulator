@@ -43,12 +43,14 @@ export function percentile(sorted, p) {
 // `monthlyReturns` (the portfolio's real history), so it keeps the real mix of good and bad months.
 // shortcut: months are drawn independently, which loses the way bad months cluster in a crisis.
 // Draw blocks of consecutive months instead if failure rates look too optimistic.
-export function simulate({ monthlyReturns, startValue, annualWithdrawal, growth, years, runs, random = Math.random }) {
+// `samples` runs are also returned year by year (paths), for drawing individual futures.
+export function simulate({ monthlyReturns, startValue, annualWithdrawal, growth, years, runs, samples = 0, random = Math.random }) {
   // Year by year, all runs at once, in typed arrays: one balance per run (never a list per run) and a native numeric sort.
   const n = monthlyReturns.length;
   const balance = new Float64Array(runs).fill(startValue);
   const failed = new Uint8Array(runs);
   const bands = { p10: [], p25: [], p50: [], p75: [], p90: [] };
+  const paths = Array.from({ length: Math.min(samples, runs) }, () => [startValue]);
   const record = () => {
     const sorted = Float64Array.from(balance).sort();
     for (const key of Object.keys(bands)) bands[key].push(percentile(sorted, key.slice(1) / 100));
@@ -68,8 +70,9 @@ export function simulate({ monthlyReturns, startValue, annualWithdrawal, growth,
       balance[run] = value;
     }
     record();
+    paths.forEach((path, run) => path.push(balance[run]));
   }
-  return { failureRate: failures / runs, bands };
+  return { failureRate: failures / runs, bands, paths };
 }
 
 // How a series behaved in one crisis: its lowest point relative to the day the crisis began, and

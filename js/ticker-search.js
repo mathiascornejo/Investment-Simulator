@@ -4,6 +4,7 @@
 // lists on NYSE, Nasdaq, NYSE Arca/American, Cboe BZX, Shanghai and Shenzhen (no company names; regenerate from
 // Tiingo's supported_tickers.zip). Not a live lookup: anything typed that isn't listed is offered as "Use XYZ".
 import { PROXY_URL } from "./data.js";
+import { glyph, assetClass } from "./visuals.js";
 const TICKERS = [
   ["SPY", "SPDR S&P 500 ETF"], ["VOO", "Vanguard S&P 500 ETF"], ["VTI", "Vanguard Total Stock Market ETF"],
   ["QQQ", "Invesco QQQ (Nasdaq-100)"], ["IWM", "iShares Russell 2000 ETF"], ["DIA", "SPDR Dow Jones Industrial ETF"],
@@ -31,7 +32,8 @@ fetch(new URL("./tickers.csv", import.meta.url)).then((r) => r.ok ? r.text() : "
 // Adds suggestions to `input`. extra(): more [text, hint] entries listed before the tickers (saved portfolios).
 // shortcut: a portfolio name containing a comma is searched from after its last comma.
 // multi: the box holds a comma list and only the last entry is searched.
-export function attachTickerSearch(input, { multi = false, extra = () => [] } = {}) {
+// onPick(text, hint): called with the chosen entry instead of writing it into the box (which is cleared).
+export function attachTickerSearch(input, { multi = false, extra = () => [], onPick } = {}) {
   const wrap = document.createElement("div");
   wrap.className = "combo";
   input.before(wrap);
@@ -67,7 +69,7 @@ export function attachTickerSearch(input, { multi = false, extra = () => [] } = 
       const hint = document.createElement("span");
       hint.className = "hint";
       hint.textContent = name;
-      li.append(b, hint);
+      li.append(glyph(name === "Saved portfolio" ? "portfolio" : name === "Tab" ? "tab" : assetClass(t)), b, hint);
       return li;
     }));
     list.hidden = false;
@@ -75,6 +77,12 @@ export function attachTickerSearch(input, { multi = false, extra = () => [] } = 
   }
 
   function choose(k) {
+    if (onPick) {
+      const [text, hint] = hits[k];
+      input.value = "";
+      close();
+      return onPick(text, hint);
+    }
     input.value = input.value.slice(0, start()) + hits[k][0] + (multi ? ", " : "");
     close();
     input.focus();
