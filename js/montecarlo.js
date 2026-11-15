@@ -11,14 +11,17 @@ export const CRISES = [
 
 // Follows one balance through a list of monthly returns. Each month: take the withdrawal, then
 // apply the return. The yearly withdrawal is split into 12 and grows by `growth` each year.
+// A contribution (flat) is added first: 1/12 of `annualContribution` every month, or all of it in the
+// first month of each year when `contributeMonthly` is false.
 // Returns the balance at the end of every 12 months (index 0 is the start) and the month the
 // money ran out (null if it never did).
-export function walk(monthlyReturns, startValue, annualWithdrawal, growth) {
+export function walk(monthlyReturns, startValue, annualWithdrawal, growth, annualContribution = 0, contributeMonthly = true) {
   const yearly = [startValue];
   let value = startValue;
   let ranOutAt = null;
   monthlyReturns.forEach((r, m) => {
     if (ranOutAt === null) {
+      value += contribution(annualContribution, contributeMonthly, m);
       value -= (annualWithdrawal / 12) * (1 + growth) ** Math.floor(m / 12);
       if (value <= 0.005) {
         value = 0;
@@ -32,6 +35,8 @@ export function walk(monthlyReturns, startValue, annualWithdrawal, growth) {
   return { yearly, ranOutAt, final: value };
 }
 
+const contribution = (annual, monthly, m) => (monthly ? annual / 12 : m % 12 === 0 ? annual : 0);
+
 // Value below which the fraction p of a sorted list falls (linear interpolation).
 export function percentile(sorted, p) {
   const at = (sorted.length - 1) * p;
@@ -44,7 +49,7 @@ export function percentile(sorted, p) {
 // shortcut: months are drawn independently, which loses the way bad months cluster in a crisis.
 // Draw blocks of consecutive months instead if failure rates look too optimistic.
 // `samples` runs are also returned year by year (paths), for drawing individual futures.
-export function simulate({ monthlyReturns, startValue, annualWithdrawal, growth, years, runs, samples = 0, random = Math.random }) {
+export function simulate({ monthlyReturns, startValue, annualWithdrawal, growth, years, runs, samples = 0, random = Math.random, annualContribution = 0, contributeMonthly = true }) {
   // Year by year, all runs at once, in typed arrays: one balance per run (never a list per run) and a native numeric sort.
   const n = monthlyReturns.length;
   const balance = new Float64Array(runs).fill(startValue);
@@ -63,7 +68,8 @@ export function simulate({ monthlyReturns, startValue, annualWithdrawal, growth,
       if (failed[run]) continue;
       let value = balance[run];
       for (let m = 0; m < 12; m++) {
-        value -= monthly; // same order as walk(): withdraw, then apply the return
+        value += contribution(annualContribution, contributeMonthly, m); // same order as walk(): contribute, withdraw, then apply the return
+        value -= monthly;
         if (value <= 0.005) { value = 0; failed[run] = 1; failures++; break; }
         value *= 1 + monthlyReturns[Math.floor(random() * n)];
       }
@@ -89,8 +95,8 @@ export function crisisTest(points, { start, end }) {
 
 // What actually happened to a balance that started on `startDate` and took the same withdrawals,
 // following the series' real monthly returns from then to its last date.
-export function historicalRun(points, startDate, startValue, annualWithdrawal, growth) {
+export function historicalRun(points, startDate, startValue, annualWithdrawal, growth, annualContribution = 0, contributeMonthly = true) {
   const months = periodReturns(windowOf(points, startDate, "9999-12-31").points, 7);
-  const { ranOutAt, final } = walk(months.map((m) => m.value), startValue, annualWithdrawal, growth);
+  const { ranOutAt, final } = walk(months.map((m) => m.value), startValue, annualWithdrawal, growth, annualContribution, contributeMonthly);
   return { final, ranOutIn: ranOutAt === null ? null : months[ranOutAt].period };
 }

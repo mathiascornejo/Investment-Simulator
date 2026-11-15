@@ -25,7 +25,7 @@ const $ = (id) => document.getElementById(id);
 attachTickerSearch($("mc-ticker"));
 $("mc-ticker").placeholder = "Add a ticker";
 $("mc-ticker").addEventListener("input", (e) => { e.target.value = e.target.value.replace(/[^A-Za-z0-9.\-]/g, ""); }); // same as the Backtester box
-for (const id of ["mc-start", "mc-withdrawal", "mc-growth", "mc-years"]) liveField($(id));
+for (const id of ["mc-start", "mc-withdrawal", "mc-growth", "mc-contribution", "mc-years"]) liveField($(id));
 const form = $("mc-form");
 const status = $("mc-status");
 const rate = new Intl.NumberFormat(undefined, { style: "percent", maximumFractionDigits: 1 });
@@ -53,6 +53,7 @@ $("mc-portfolio").addEventListener("change", () => {
 });
 listPortfolios();
 dropdown($("mc-portfolio"), { help: {} });
+dropdown($("mc-contribute-every"), { help: { month: "One twelfth of the yearly amount, every month.", year: "The whole yearly amount, at the start of each year." } });
 dropdown($("mc-runs"), { help: { 1000: "Quick, rougher estimate.", 10000: "A good balance of speed and detail.", 50000: "Smoother bands.", 100000: "Smoother still; a few seconds.", 1000000: "Smoothest; around ten seconds." } });
 
 // Runs in a background thread so the page stays responsive; falls back to the page itself if workers are unavailable.
@@ -77,11 +78,13 @@ form.addEventListener("submit", async (event) => {
   const startValue = Number($("mc-start").value);
   const annualWithdrawal = Number($("mc-withdrawal").value);
   const growth = Number($("mc-growth").value) / 100;
+  const annualContribution = Number($("mc-contribution").value);
+  const contributeMonthly = $("mc-contribute-every").value === "month";
   const years = Number($("mc-years").value);
   const runs = Number($("mc-runs").value);
   const MAX = 1e12; // same cap as the inputs' max: bigger amounts add nothing and could overflow over 60 years
-  if (!(startValue > 0 && startValue <= MAX) || !(annualWithdrawal >= 0 && annualWithdrawal <= MAX) || !(growth >= 0 && growth <= 0.2) || !(Number.isInteger(years) && years >= 1 && years <= 60)) {
-    return say("Check the amounts: a starting amount above 0 and a withdrawal of 0 or more (both up to $1 trillion), a rise of 0 to 20%, and 1 to 60 whole years.", true);
+  if (!(startValue > 0 && startValue <= MAX) || !(annualWithdrawal >= 0 && annualWithdrawal <= MAX) || !(annualContribution >= 0 && annualContribution <= MAX) || !(growth >= 0 && growth <= 0.2) || !(Number.isInteger(years) && years >= 1 && years <= 60)) {
+    return say("Check the amounts: a starting amount above 0 and a withdrawal and a contribution of 0 or more (all up to $1 trillion), a rise of 0 to 20%, and 1 to 60 whole years.", true);
   }
 
   const name = portfolio ? portfolio.name : ticker;
@@ -113,7 +116,7 @@ form.addEventListener("submit", async (event) => {
   button.disabled = true;
   let result;
   try {
-    result = await simulateAway({ monthlyReturns: months.map((m) => m.value), startValue, annualWithdrawal, growth, years, runs, samples: SAMPLES });
+    result = await simulateAway({ monthlyReturns: months.map((m) => m.value), startValue, annualWithdrawal, growth, annualContribution, contributeMonthly, years, runs, samples: SAMPLES });
   } catch (error) {
     return say(`The simulation failed: ${error.message}`, true);
   } finally {
@@ -153,10 +156,10 @@ form.addEventListener("submit", async (event) => {
   $("mc-method").textContent =
     `Method: historical bootstrap. Each run is built month by month, drawing every month at random (with replacement) from ` +
     `the ${months.length} real monthly returns of ${name} between ${monthLabel(months[0].period)} and ${monthLabel(months.at(-1).period)}. ` +
-    `Withdrawals are taken monthly. Balances are in future dollars, not adjusted for inflation. ` +
+    `Withdrawals are taken monthly.${annualContribution > 0 ? ` Contributions of ${moneyFit.format(annualContribution)} a year are added ${contributeMonthly ? "monthly" : "at the start of each year"} and stay the same every year.` : ""} Balances are in future dollars, not adjusted for inflation. ` +
     `The future can be worse than anything in this history, and a short history makes the result less reliable.`;
 
-  drawCrises(points, prices[BENCHMARK], { startValue, annualWithdrawal, growth });
+  drawCrises(points, prices[BENCHMARK], { startValue, annualWithdrawal, growth, annualContribution, contributeMonthly });
   $("mc-results").hidden = false;
   requestAnimationFrame(() => requestAnimationFrame(() => $("mc-gauge").classList.remove("start")));
   drawCone(bands, paths);
@@ -242,9 +245,9 @@ function drawCone(bands, paths) {
 // A table cell with a main line and a smaller second line.
 const cell = (main, detail) => element("td", main, ...(detail ? [element("small", detail)] : []));
 
-function drawCrises(points, benchmark, { startValue, annualWithdrawal, growth }) {
+function drawCrises(points, benchmark, { startValue, annualWithdrawal, growth, annualContribution, contributeMonthly }) {
   const last = points.at(-1).date;
-  const heads = ["Crisis", "Lowest point", `${BENCHMARK}'s lowest point`, "Back to its starting level", "With your withdrawals"];
+  const heads = ["Crisis", "Lowest point", `${BENCHMARK}'s lowest point`, "Back to its starting level", annualContribution > 0 ? "With your withdrawals and contributions" : "With your withdrawals"];
   const rows = CRISES.map((crisis) => {
     const title = Object.assign(element("th", crisis.name, element("small", `${longDate(crisis.start)} to ${longDate(crisis.end)}`)), { scope: "row" });
     const test = crisisTest(points, crisis);
@@ -256,7 +259,7 @@ function drawCrises(points, benchmark, { startValue, annualWithdrawal, growth })
     }
     const spy = crisisTest(benchmark, crisis);
     const yearsToRecover = test.recovered && ((Date.parse(test.recovered) - Date.parse(crisis.start)) / (365.25 * 864e5)).toFixed(1);
-    const run = historicalRun(points, crisis.start, startValue, annualWithdrawal, growth);
+    const run = historicalRun(points, crisis.start, startValue, annualWithdrawal, growth, annualContribution, contributeMonthly);
     return element(
       "tr",
       title,

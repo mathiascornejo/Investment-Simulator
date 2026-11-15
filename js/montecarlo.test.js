@@ -106,3 +106,13 @@ test("simulate: sample paths follow the first runs year by year", () => {
   assert.deepEqual(out.paths[0].map((v) => Math.round(v)), [1000, 880, 760, 640]);
   assert.deepEqual(simulate({ monthlyReturns: [0], startValue: 1, annualWithdrawal: 0, growth: 0, years: 1, runs: 3 }).paths, []);
 });
+
+test("contributions: monthly and annual add the same money, annual a little later", () => {
+  const monthly = walk(Array(12).fill(0), 0, 0, 0, 1200, true);
+  const annual = walk(Array(12).fill(0), 0, 0, 0, 1200, false);
+  assert.equal(monthly.final, 1200);
+  assert.equal(annual.final, 1200);
+  assert.deepEqual(walk([0, 0], 0, 0, 0, 1200, false).yearly, [0]); // nothing at the year-end mark yet
+  assert.equal(walk([0, 0], 0, 0, 0, 1200, false).final, 1200); // all of it lands in month 1
+  assert.equal(simulate({ monthlyReturns: [0], startValue: 1000, annualWithdrawal: 600, growth: 0, annualContribution: 600, years: 3, runs: 5 }).failureRate, 0); // contributions cancel the withdrawals
+});
