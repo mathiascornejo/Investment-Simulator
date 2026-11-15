@@ -142,7 +142,7 @@ form.addEventListener("submit", async (event) => {
     }),
   );
 
-  $("mc-chart-title").textContent = `Range of outcomes for ${name} over ${years} ${years === 1 ? "year" : "years"}`;
+  $("mc-chart-title").textContent = `Range of Outcomes for ${name} Over ${years} ${years === 1 ? "Year" : "Years"}`;
   $("mc-legend").replaceChildren(
     ...[["Median run", MEDIAN], ["Middle 50% of runs", MIDDLE_50], ["Middle 80% of runs", MIDDLE_80], [`${paths.length} sample runs`, SAMPLE]].map(([label, color]) => {
       const swatch = Object.assign(element("span"), { className: "swatch" });
