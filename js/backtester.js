@@ -75,7 +75,7 @@ const state = {
   max: "", // last date every asset has
   start: "",
   end: "",
-  preset: "12",
+  preset: "1",
   log: false,
   keyLength: 4, // 4 = returns by year, 7 = by month
   heat: 0, // which line the monthly heatmap shows
