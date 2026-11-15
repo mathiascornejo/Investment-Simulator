@@ -696,7 +696,7 @@ button.term { padding: 0; border: 0; border-bottom: 1.5px dotted var(--field-bor
 .switch:checked::after { transform: translateX(0.875rem); }
 .switch:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) { .switch, .switch::after { transition: none; } }
-.real-country { width: 10.5rem; height: 1.875rem; padding: 0 0.875rem; border: 0; border-radius: 999px; background: var(--wash); font: inherit; font-size: 0.875rem; color: var(--ink); }
-.real-country:focus { outline: 2px solid var(--ink); outline-offset: -2px; }
+.realbar .real-country { width: 10.5rem; height: 1.875rem; padding: 0 0.875rem; border: 0; border-radius: 999px; background: var(--wash); font: inherit; font-size: 0.875rem; color: var(--ink); }
+.realbar .real-country:focus { outline: 2px solid var(--ink); outline-offset: -2px; }
 .real-country[hidden] { display: none; }
 .realbar .suggest { inset: 100% 0 auto auto; width: 14rem; } /* open under the pill, right-aligned, so it stays on screen */
