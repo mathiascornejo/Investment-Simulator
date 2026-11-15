@@ -81,3 +81,15 @@ test("a ticker Tiingo doesn't know falls back to Yahoo", async () => {
   assert.deepEqual(await res.json(), [{ date: "2020-01-02", adjClose: 5 }]);
   assert.equal(calls.length, 2);
 });
+
+test("search returns symbol, name and exchange for stocks and funds only", async () => {
+  const quotes = [{ symbol: "VOD.L", quoteType: "EQUITY", longname: "Vodafone Group Plc", exchDisp: "LSE" },
+    { symbol: "^FTSE", quoteType: "INDEX", shortname: "FTSE 100" }];
+  const { get, calls } = setup(() => new Response(JSON.stringify({ quotes })));
+  const res = await get("/search?q=vodafone");
+  assert.deepEqual(await res.json(), [{ symbol: "VOD.L", name: "Vodafone Group Plc", exchange: "LSE" }]);
+  assert.match(calls[0].url, /v1\/finance\/search\?q=vodafone/);
+  assert.equal((await get("/search?q=v")).status, 200);
+  assert.equal(calls.length, 1); // one character is not looked up
+  assert.equal((await get("/search?q=vodafone", "https://evil.example")).status, 403);
+});

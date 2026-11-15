@@ -3,6 +3,7 @@
 // The ~40 named tickers below come first; tickers.csv ("TICKER,EXCHANGE") adds every active stock and ETF Tiingo
 // lists on NYSE, Nasdaq, NYSE Arca/American, Cboe BZX, Shanghai and Shenzhen (no company names; regenerate from
 // Tiingo's supported_tickers.zip). Not a live lookup: anything typed that isn't listed is offered as "Use XYZ".
+import { PROXY_URL } from "./data.js";
 const TICKERS = [
   ["SPY", "SPDR S&P 500 ETF"], ["VOO", "Vanguard S&P 500 ETF"], ["VTI", "Vanguard Total Stock Market ETF"],
   ["QQQ", "Invesco QQQ (Nasdaq-100)"], ["IWM", "iShares Russell 2000 ETF"], ["DIA", "SPDR Dow Jones Industrial ETF"],
@@ -43,14 +44,15 @@ export function attachTickerSearch(input, { multi = false, extra = () => [] } = 
   input.setAttribute("aria-autocomplete", "list");
   input.setAttribute("aria-expanded", "false");
 
-  let hits = [], at = 0;
+  let hits = [], at = 0, remote = [], remoteFor = "", timer;
   const start = () => (multi ? input.value.search(/[^,\s]*$/) : 0); // where the entry being typed begins
   const close = () => { list.hidden = true; input.setAttribute("aria-expanded", "false"); };
 
   function render() {
     const q = input.value.slice(start()).trim().toUpperCase();
-    hits = q ? [...extra(), ...TICKERS].filter(([t, name]) => t.toUpperCase().includes(q) || name.toUpperCase().includes(q))
-      .sort((a, b) => Number(b[0].toUpperCase().startsWith(q)) - Number(a[0].toUpperCase().startsWith(q))).slice(0, 8) : [];
+    const mine = remoteFor === q ? remote : []; // name matches from Yahoo, for the text as typed now
+    hits = q ? [...extra(), ...mine, ...TICKERS.filter(([t]) => !mine.some(([m]) => m === t))].filter(([t, name]) => t.toUpperCase().includes(q) || name.toUpperCase().includes(q) || mine.some((m) => m[0] === t))
+      .sort((a, b) => Number(b[0].toUpperCase().startsWith(q)) - Number(a[0].toUpperCase().startsWith(q))).slice(0, 10) : [];
     if (q && /^[A-Z0-9.-]{1,10}$/.test(q) && !hits.some(([t]) => t.toUpperCase() === q)) hits.push([q, "Use this ticker"]);
     // A finished ticker shows no list, so Enter still submits the form.
     if (!hits.length || hits[0][0].toUpperCase() === q) return close();
@@ -78,7 +80,17 @@ export function attachTickerSearch(input, { multi = false, extra = () => [] } = 
     input.focus();
   }
 
-  input.addEventListener("input", () => { at = 0; render(); });
+  // Names aren't in the local list, so ask the proxy (Yahoo search) a moment after typing stops.
+  function lookup() {
+    const q = input.value.slice(start()).trim().toUpperCase();
+    if (q.length < 2) return;
+    fetch(`${PROXY_URL}/search?q=${encodeURIComponent(q)}`).then((r) => r.ok ? r.json() : []).then((rows) => {
+      remote = rows.map((x) => [x.symbol.toUpperCase(), [x.name, x.exchange].filter(Boolean).join(" · ")]);
+      remoteFor = q;
+      if (document.activeElement === input && input.value.slice(start()).trim().toUpperCase() === q) render();
+    }).catch(() => {}); // offline or blocked: local suggestions still work
+  }
+  input.addEventListener("input", () => { at = 0; render(); clearTimeout(timer); timer = setTimeout(lookup, 250); });
   input.addEventListener("blur", close);
   input.addEventListener("keydown", (e) => {
     if (list.hidden) return;

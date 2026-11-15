@@ -44,18 +44,30 @@ export function percentile(sorted, p) {
 // shortcut: months are drawn independently, which loses the way bad months cluster in a crisis.
 // Draw blocks of consecutive months instead if failure rates look too optimistic.
 export function simulate({ monthlyReturns, startValue, annualWithdrawal, growth, years, runs, random = Math.random }) {
-  const byYear = Array.from({ length: years + 1 }, () => []);
-  let failures = 0;
-  for (let run = 0; run < runs; run++) {
-    const months = Array.from({ length: years * 12 }, () => monthlyReturns[Math.floor(random() * monthlyReturns.length)]);
-    const { yearly, ranOutAt } = walk(months, startValue, annualWithdrawal, growth);
-    if (ranOutAt !== null) failures++;
-    yearly.forEach((value, year) => byYear[year].push(value));
-  }
+  // Year by year, all runs at once, in typed arrays: one balance per run (never a list per run) and a native numeric sort.
+  const n = monthlyReturns.length;
+  const balance = new Float64Array(runs).fill(startValue);
+  const failed = new Uint8Array(runs);
   const bands = { p10: [], p25: [], p50: [], p75: [], p90: [] };
-  for (const values of byYear) {
-    values.sort((a, b) => a - b);
-    for (const key of Object.keys(bands)) bands[key].push(percentile(values, key.slice(1) / 100));
+  const record = () => {
+    const sorted = Float64Array.from(balance).sort();
+    for (const key of Object.keys(bands)) bands[key].push(percentile(sorted, key.slice(1) / 100));
+  };
+  record();
+  let failures = 0;
+  for (let year = 0; year < years; year++) {
+    const monthly = (annualWithdrawal / 12) * (1 + growth) ** year;
+    for (let run = 0; run < runs; run++) {
+      if (failed[run]) continue;
+      let value = balance[run];
+      for (let m = 0; m < 12; m++) {
+        value -= monthly; // same order as walk(): withdraw, then apply the return
+        if (value <= 0.005) { value = 0; failed[run] = 1; failures++; break; }
+        value *= 1 + monthlyReturns[Math.floor(random() * n)];
+      }
+      balance[run] = value;
+    }
+    record();
   }
   return { failureRate: failures / runs, bands };
 }

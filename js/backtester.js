@@ -8,10 +8,10 @@ import { pct, num, money, moneyCompact, longDate, monthLabel, show, element } fr
 
 const BENCHMARK = "SPY"; // beta is measured against this
 const START_VALUE = 10000;
-const MAX_SERIES = 5; // one colour each; see COLORS
+const MAX_SERIES = 10; // one colour each; see COLORS
 // Fixed order, checked colour-blind safe on white. A colour belongs to a position in the
 // ticker list, so an asset keeps its colour when others fail to load.
-const COLORS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4"];
+const COLORS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#7b5cc4", "#8c6239", "#22a6b8", "#5d6b7a", "#a8a22a"]; // shortcut: colours 6-10 not colour-blind validated
 const INK = "#15233b";
 const MUTED = "#5a6779";
 const GRID = "#e6eae5";
@@ -30,7 +30,7 @@ const state = {
   max: "", // last date every asset has
   start: "",
   end: "",
-  preset: "max",
+  preset: "1",
   log: false,
   keyLength: 4, // 4 = returns by year, 7 = by month
 };
@@ -67,7 +67,19 @@ function say(text, isError = false) {
   if (isError) status.dataset.state = "error";
 }
 
-const yearsBefore = (date, years) => `${date.slice(0, 4) - years}${date.slice(4)}`;
+const monthsBefore = (date, months) => {
+  const d = new Date(`${date}T00:00:00Z`);
+  d.setUTCMonth(d.getUTCMonth() - months);
+  return d.toISOString().slice(0, 10);
+};
+
+// Select a preset (months back from the latest date, or "max"), clamped to the data we have.
+function applyPreset(months) {
+  state.preset = months;
+  state.end = state.max;
+  const wanted = months === "max" ? state.min : monthsBefore(state.max, months);
+  state.start = wanted < state.min ? state.min : wanted;
+}
 
 // Loading
 form.addEventListener("submit", async (event) => {
@@ -134,27 +146,18 @@ form.addEventListener("submit", async (event) => {
     say("These assets have no dates in common, so they can't be compared.", true);
     return;
   }
-  state.start = state.min;
-  state.end = state.max;
-  state.preset = "max";
+  applyPreset("1");
 
-  const notes = [];
-  if (state.series.some((s) => s.points[0].date < state.min)) {
-    notes.push(`The comparison starts on ${longDate(state.min)}, when ${latestStarter.label}'s data begins.`);
-  }
-  say([...notes, ...problems].join(" "), problems.length > 0);
+  say(problems.join(" "), problems.length > 0);
   $("results").hidden = false;
   draw();
 });
 
 // Controls
-$("presets").addEventListener("click", (event) => {
-  const years = event.target.dataset.years;
-  if (!years) return;
-  state.preset = years;
-  state.end = state.max;
-  const wanted = years === "max" ? state.min : yearsBefore(state.max, years);
-  state.start = wanted < state.min ? state.min : wanted; // clamp to the data we have
+for (const group of document.querySelectorAll(".presets")) group.addEventListener("click", (event) => {
+  const months = event.target.dataset.months;
+  if (!months) return;
+  applyPreset(months);
   draw();
 });
 
@@ -194,7 +197,7 @@ function draw() {
     return;
   }
 
-  for (const b of $("presets").children) b.setAttribute("aria-pressed", b.dataset.years === state.preset);
+  for (const b of document.querySelectorAll(".presets button")) b.setAttribute("aria-pressed", b.dataset.months === state.preset);
   for (const b of $("period").children) b.setAttribute("aria-pressed", Number(b.dataset.keyLength) === state.keyLength);
   for (const [id, value] of [["from", state.start], ["to", state.end]]) {
     Object.assign($(id), { min: state.min, max: state.max, value });

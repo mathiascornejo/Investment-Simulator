@@ -45,11 +45,25 @@ $("mc-portfolio").addEventListener("change", () => {
 });
 listPortfolios();
 
+// Runs in a background thread so the page stays responsive; falls back to the page itself if workers are unavailable.
+function simulateAway(input) {
+  try {
+    const worker = new Worker(new URL("./montecarlo-worker.js", import.meta.url), { type: "module" });
+    return new Promise((resolve, reject) => {
+      worker.onmessage = (e) => { worker.terminate(); resolve(e.data); };
+      worker.onerror = (e) => { worker.terminate(); reject(new Error(e.message || "worker error")); };
+      worker.postMessage(input);
+    });
+  } catch {
+    return Promise.resolve(simulate(input));
+  }
+}
+
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   const portfolio = loadPortfolios().find((p) => p.name === $("mc-portfolio").value);
   const ticker = $("mc-ticker").value.trim().toUpperCase();
-  if (!portfolio && !/^[A-Z0-9-]{1,10}$/.test(ticker)) return say("Enter a ticker made of letters, digits or dashes.", true);
+  if (!portfolio && !/^[A-Z0-9.-]{1,12}$/.test(ticker)) return say("Enter a ticker made of letters, digits, dots or dashes.", true);
   const startValue = Number($("mc-start").value);
   const annualWithdrawal = Number($("mc-withdrawal").value);
   const growth = Number($("mc-growth").value) / 100;
@@ -81,7 +95,17 @@ form.addEventListener("submit", async (event) => {
     return say(`${name} has under two years of history, which is too little to simulate from.`, true);
   }
 
-  const { failureRate, bands } = simulate({ monthlyReturns: months.map((m) => m.value), startValue, annualWithdrawal, growth, years, runs });
+  say(`Running ${runs.toLocaleString()} simulations…`);
+  button.disabled = true;
+  let result;
+  try {
+    result = await simulateAway({ monthlyReturns: months.map((m) => m.value), startValue, annualWithdrawal, growth, years, runs });
+  } catch (error) {
+    return say(`The simulation failed: ${error.message}`, true);
+  } finally {
+    button.disabled = false;
+  }
+  const { failureRate, bands } = result;
   say("");
 
   $("mc-failure").textContent = rate.format(failureRate);

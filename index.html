@@ -30,25 +30,26 @@
   <main>
     <section id="backtester">
       <h1>Backtester</h1>
+      <p class="lede">Compare portfolios and single assets over any period: returns, drawdowns and risk, side by side.</p>
 
       <form id="compare-form">
         <label for="tickers">Tickers to compare</label>
         <div class="row">
-          <input id="tickers" value="SPY, BND" autocomplete="off" spellcheck="false" aria-describedby="tickers-hint">
+          <input id="tickers" value="SPY, BND" autocomplete="off" spellcheck="false">
           <button type="submit">Compare</button>
         </div>
-        <p id="tickers-hint" class="hint">Stocks, ETFs, mutual funds or your saved portfolios, separated by commas. Up to 5 lines in total.</p>
       </form>
       <p id="compare-status" class="status" role="status"></p>
 
       <div id="results" class="panel" hidden>
         <div class="toolbar">
-          <div id="presets" class="segmented" role="group" aria-label="Period">
-            <button type="button" data-years="1">1Y</button>
-            <button type="button" data-years="3">3Y</button>
-            <button type="button" data-years="5">5Y</button>
-            <button type="button" data-years="10">10Y</button>
-            <button type="button" data-years="max">Max</button>
+          <div class="segmented presets" role="group" aria-label="Period">
+            <button type="button" data-months="1">1M</button>
+            <button type="button" data-months="12">1Y</button>
+            <button type="button" data-months="36">3Y</button>
+            <button type="button" data-months="60">5Y</button>
+            <button type="button" data-months="120">10Y</button>
+            <button type="button" data-months="max">Max</button>
           </div>
           <label>From <input type="date" id="from"></label>
           <label>To <input type="date" id="to"></label>
@@ -80,7 +81,17 @@
         </div>
 
         <div class="block">
-          <h2>Statistics</h2>
+          <div class="block-head">
+            <h2>Statistics</h2>
+            <div class="segmented presets" role="group" aria-label="Period">
+            <button type="button" data-months="1">1M</button>
+            <button type="button" data-months="12">1Y</button>
+            <button type="button" data-months="36">3Y</button>
+            <button type="button" data-months="60">5Y</button>
+            <button type="button" data-months="120">10Y</button>
+            <button type="button" data-months="max">Max</button>
+          </div>
+          </div>
           <div class="table-scroll"><table id="stats"></table></div>
         </div>
       </div>
@@ -88,6 +99,7 @@
 
     <section id="creator">
       <h1>Portfolio creator</h1>
+      <p class="lede">Build a portfolio from stocks, bonds, funds and commodities. Set its weights and rebalancing rule, then compare it in the Backtester.</p>
 
       <form id="portfolio-form" class="panel">
         <div class="field">
@@ -143,6 +155,7 @@
 
     <section id="monte-carlo">
       <h1>Monte Carlo</h1>
+      <p class="lede">Run thousands of possible futures for a portfolio to see how often the money runs out, and how it came through past crises.</p>
 
       <form id="mc-form" class="panel">
         <div class="field-grid">

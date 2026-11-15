@@ -2,6 +2,7 @@
 import { fetchPrices } from "./data.js";
 import { summarize } from "./stats.js";
 import { REBALANCE_RULES, loadPortfolios, savePortfolios, portfolioSeries } from "./portfolios.js";
+import { attachTickerSearch } from "./ticker-search.js";
 import { pct, num, longDate, show, element } from "./format.js";
 
 const BENCHMARK = "SPY";
@@ -34,6 +35,7 @@ function addHolding(ticker = "", weight = "") {
   });
   const row = Object.assign(element("div", tickerInput, weightInput, remove), { className: "holding" });
   $("holdings").append(row);
+  attachTickerSearch(tickerInput); // after append: it wraps the input in place
 }
 
 const readHoldings = () =>

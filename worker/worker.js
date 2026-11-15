@@ -22,6 +22,20 @@ async function yahoo(ticker) {
   return rows.length ? { body: JSON.stringify(rows) } : { status: 404 };
 }
 
+// Company-name lookup for the ticker box, from Yahoo's unofficial search (same caveats as yahoo()).
+async function search(q, cors) {
+  q = q.trim().slice(0, 40);
+  if (q.length < 2) return json([], 200, cors);
+  const res = await fetch(`https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(q)}&quotesCount=8&newsCount=0`, {
+    headers: { "User-Agent": "Mozilla/5.0" },
+  });
+  if (!res.ok) return json({ error: "Search unavailable" }, 502, cors);
+  const quotes = (await res.json()).quotes || [];
+  const rows = quotes.filter((x) => ["EQUITY", "ETF", "MUTUALFUND"].includes(x.quoteType) && x.symbol)
+    .map((x) => ({ symbol: x.symbol, name: x.longname || x.shortname || "", exchange: x.exchDisp || "" }));
+  return json(rows, 200, { ...cors, "Cache-Control": "public, max-age=3600" });
+}
+
 export default {
   async fetch(request, env, ctx) {
     // Stops other websites using this proxy from a browser. A script can fake the Origin header,
@@ -31,6 +45,7 @@ export default {
     const cors = { "Access-Control-Allow-Origin": origin, Vary: "Origin" };
 
     const url = new URL(request.url);
+    if (request.method === "GET" && url.pathname === "/search") return search(url.searchParams.get("q") || "", cors);
     if (request.method !== "GET" || url.pathname !== "/prices") return json({ error: "Not found" }, 404, cors);
 
     const ticker = (url.searchParams.get("ticker") || "").toUpperCase();
