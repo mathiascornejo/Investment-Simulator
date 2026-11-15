@@ -268,7 +268,8 @@ for (const id of ["growth-chart", "drawdown-chart"]) {
     if (!chart() || !state.start) return;
     event.preventDefault();
     const [start, end] = [Date.parse(state.start), Date.parse(state.end)];
-    const at = Math.min(Math.max(msAt(event), start), end);
+    // Like TradingView: while the latest date is showing, it stays put and the left side moves.
+    const at = state.end === state.max ? end : Math.min(Math.max(msAt(event), start), end);
     const k = event.deltaY < 0 ? 0.8 : 1.25; // in: shrink the span around the pointer
     setSpan(at - (at - start) * k, at + (end - at) * k);
   }, { passive: false });
@@ -277,9 +278,13 @@ for (const id of ["growth-chart", "drawdown-chart"]) {
     box.setPointerCapture(event.pointerId);
     const [start, end, x0] = [Date.parse(state.start), Date.parse(state.end), event.offsetX];
     const msPerPx = (msAt({ offsetX: x0 + 100 }) - msAt({ offsetX: x0 })) / 100;
-    box.onpointermove = (e) => setSpan(start - (e.offsetX - x0) * msPerPx, end - (e.offsetX - x0) * msPerPx);
+    // Dragging along the date axis (bottom strip) stretches the range instead of moving it.
+    if (event.offsetY > box.clientHeight - 30) {
+      box.onpointermove = (e) => setSpan(end - (end - start) * 1.005 ** ((x0 - e.offsetX)), end);
+    } else box.onpointermove = (e) => setSpan(start - (e.offsetX - x0) * msPerPx, end - (e.offsetX - x0) * msPerPx);
     box.onpointerup = () => { box.onpointermove = box.onpointerup = null; };
   });
+  box.addEventListener("dblclick", () => { applyPreset("12"); draw(); }); // reset, like double-clicking a TradingView axis
 }
 
 $("period").addEventListener("click", (event) => {
