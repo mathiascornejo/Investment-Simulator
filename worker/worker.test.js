@@ -112,3 +112,9 @@ test("/cpi parses FRED's CSV and caches it", async () => {
   assert.deepEqual(await res.json(), [{ date: "2020-01-01", value: 257.971 }, { date: "2020-03-01", value: 258.115 }]);
   assert.equal(calls.length, 1);
 });
+
+test("/cpi?country=PH reads the World Bank's annual index and rejects bad codes", async () => {
+  const { get } = setup(() => new Response('[{},[{"date":"2024","value":159.6},{"date":"2023","value":null},{"date":"2022","value":148}]]'));
+  assert.deepEqual(await (await get("/cpi?country=ph")).json(), [{ date: "2022-07-01", value: 148 }, { date: "2024-07-01", value: 159.6 }]);
+  assert.equal((await get("/cpi?country=../x")).status, 400);
+});

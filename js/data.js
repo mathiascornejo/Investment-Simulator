@@ -19,19 +19,22 @@ export function cashSeries(end = new Date()) {
 
 // "Real" mode: every price series comes back in today's dollars (see inflation.js), so each tab's maths
 // (returns, drawdowns, Monte Carlo balances and withdrawals) is inflation-adjusted without knowing it.
-export const inflation = { real: localStorage.getItem("real") === "1" };
-let cpiLoading;
-function fetchCpi() {
-  cpiLoading ??= fetch(`${PROXY_URL}/cpi`).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`inflation data ${r.status}`))));
-  cpiLoading.catch(() => (cpiLoading = undefined));
-  return cpiLoading;
+export const inflation = { real: globalThis.localStorage?.getItem("real") === "1", country: globalThis.localStorage?.getItem("country") || "US" };
+const cpiLoading = new Map(); // country code -> promise
+function fetchCpi(country) {
+  if (!cpiLoading.has(country)) {
+    const promise = fetch(`${PROXY_URL}/cpi?country=${country}`).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`inflation data ${r.status}`))));
+    promise.catch(() => cpiLoading.delete(country));
+    cpiLoading.set(country, promise);
+  }
+  return cpiLoading.get(country);
 }
 
 export async function fetchPrices(ticker) {
   const nominal = await fetchNominal(ticker);
   if (!inflation.real) return nominal;
   let cpi;
-  try { cpi = await fetchCpi(); } catch { throw new Error("Couldn't load inflation data, so inflation-adjusted returns aren't available. Turn the option off to see nominal returns."); }
+  try { cpi = await fetchCpi(inflation.country); } catch { throw new Error("Couldn't load inflation data, so inflation-adjusted returns aren't available for that country. Turn the option off to see nominal returns."); }
   return deflate(nominal, cpi);
 }
 

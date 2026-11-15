@@ -687,4 +687,6 @@ button.term { padding: 0; border: 0; border-bottom: 1.5px dotted var(--field-bor
   .pop:popover-open { animation: none; }
 }
 
-.real { display: inline-flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem; font-size: 0.875rem; cursor: pointer; }
+.real { margin-left: auto; display: inline-flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem; font-size: 0.875rem; cursor: pointer; }
+.real-country { width: 11rem; margin-bottom: 1rem; }
+.real-country[hidden] { display: none; }

@@ -67,11 +67,21 @@ async function search(q, cors) {
 
 // US consumer prices (CPI-U, not seasonally adjusted, monthly since 1913) from FRED's keyless CSV download,
 // as [{ date: "YYYY-MM-01", value }]. FRED publishes each month about two weeks after it ends.
-async function cpi() {
+async function cpiUs() {
   const res = await fetch("https://fred.stlouisfed.org/graph/fredgraph.csv?id=CPIAUCNS");
   if (!res.ok) return null;
   const rows = (await res.text()).trim().split("\n").slice(1).map((l) => l.split(","))
     .filter(([d, v]) => /^\d{4}-\d\d-\d\d$/.test(d) && Number(v) > 0).map(([d, v]) => ({ date: d, value: Number(v) }));
+  return rows.length ? JSON.stringify(rows) : null;
+}
+
+// Any other country: World Bank annual CPI (FP.CPI.TOTL, 2010 = 100, keyless), dated mid-year since it is a yearly average.
+// shortcut: annual only and published late, so the latest year or two are missing; the app reuses the last value after that.
+async function cpiWorldBank(code) {
+  const res = await fetch(`https://api.worldbank.org/v2/country/${code}/indicator/FP.CPI.TOTL?format=json&per_page=100`);
+  if (!res.ok) return null;
+  const rows = ((await res.json())[1] || []).filter((r) => r.value > 0)
+    .map((r) => ({ date: `${r.date}-07-01`, value: r.value })).sort((x, y) => (x.date < y.date ? -1 : 1));
   return rows.length ? JSON.stringify(rows) : null;
 }
 
@@ -86,11 +96,14 @@ export default {
     const url = new URL(request.url);
     if (request.method === "GET" && url.pathname === "/search") return search(url.searchParams.get("q") || "", cors);
     if (request.method === "GET" && url.pathname === "/cpi") {
-      let body = await env.CACHE.get("_cpi"); // no ticker can start with "_"
+      const code = (url.searchParams.get("country") || "US").toUpperCase();
+      if (!/^[A-Z]{2}$/.test(code)) return json({ error: "Invalid country" }, 400, cors);
+      const key = `_cpi_${code}`; // no ticker can start with "_"
+      let body = await env.CACHE.get(key);
       if (body === null) {
-        body = await cpi().catch(() => null);
-        if (body === null) return json({ error: "The inflation data source is unavailable" }, 502, cors);
-        ctx.waitUntil(env.CACHE.put("_cpi", body, { expirationTtl: 24 * TTL_SECONDS }));
+        body = await (code === "US" ? cpiUs() : cpiWorldBank(code)).catch(() => null);
+        if (body === null) return json({ error: `No inflation data for ${code}` }, 502, cors);
+        ctx.waitUntil(env.CACHE.put(key, body, { expirationTtl: 24 * TTL_SECONDS }));
       }
       return new Response(body, { headers: { "Content-Type": "application/json", ...cors } });
     }

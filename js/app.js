@@ -31,12 +31,25 @@ showTab();
 
 // Inflation toggle: remembered, and every tab that is showing results re-runs them with real or nominal prices.
 const { inflation } = await import("./data.js");
+const { countryPicker, countryName } = await import("./countries.js");
 const real = document.getElementById("real-toggle");
+const country = document.getElementById("real-country");
+const showCountry = (code) => { country.dataset.name = country.value = countryName(code); };
+const changed = () => dispatchEvent(new Event("inflation-changed"));
 real.checked = inflation.real;
+country.hidden = !inflation.real;
+showCountry(inflation.country);
+countryPicker(country, (code) => {
+  inflation.country = code;
+  localStorage.setItem("country", code);
+  showCountry(code);
+  changed();
+});
 real.addEventListener("change", () => {
   inflation.real = real.checked;
+  country.hidden = !real.checked;
   localStorage.setItem("real", real.checked ? "1" : "0");
-  dispatchEvent(new Event("inflation-changed"));
+  changed();
 });
 
 // Each tab's own code. Imported after the tabs are set up so charts measure visible containers.
