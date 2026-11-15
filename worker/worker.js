@@ -32,7 +32,7 @@ async function search(q, cors) {
   if (!res.ok) return json({ error: "Search unavailable" }, 502, cors);
   const quotes = (await res.json()).quotes || [];
   const rows = quotes.filter((x) => ["EQUITY", "ETF", "MUTUALFUND"].includes(x.quoteType) && x.symbol)
-    .map((x) => ({ symbol: x.symbol, name: x.longname || x.shortname || "", exchange: x.exchDisp || "" }));
+    .map((x) => ({ symbol: x.symbol, name: x.longname || x.shortname || "", exchange: x.exchDisp || "", type: x.quoteType }));
   return json(rows, 200, { ...cors, "Cache-Control": "public, max-age=3600" });
 }
 

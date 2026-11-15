@@ -2,6 +2,7 @@
 // The maths lives in montecarlo.js; this file is inputs, loading and drawing.
 import { fetchPrices } from "./data.js";
 import { attachTickerSearch } from "./ticker-search.js";
+import { dropdown, liveField } from "./fields.js";
 import { periodReturns } from "./stats.js";
 import { loadPortfolios, portfolioSeries } from "./portfolios.js";
 import { simulate, crisisTest, historicalRun, CRISES } from "./montecarlo.js";
@@ -22,6 +23,8 @@ const SAMPLES = 30;
 
 const $ = (id) => document.getElementById(id);
 attachTickerSearch($("mc-ticker"));
+liveField($("mc-ticker"), { clear: true });
+for (const id of ["mc-start", "mc-withdrawal", "mc-growth", "mc-years"]) liveField($(id));
 const form = $("mc-form");
 const status = $("mc-status");
 const rate = new Intl.NumberFormat(undefined, { style: "percent", maximumFractionDigits: 1 });
@@ -48,6 +51,8 @@ $("mc-portfolio").addEventListener("change", () => {
   $("mc-ticker-field").hidden = $("mc-portfolio").value !== "";
 });
 listPortfolios();
+dropdown($("mc-portfolio"), { help: {} });
+dropdown($("mc-runs"), { help: { 1000: "Quick, rougher estimate.", 10000: "A good balance of speed and detail.", 50000: "Smoother bands.", 100000: "Smoother still; a few seconds.", 1000000: "Smoothest; around ten seconds." } });
 
 // Runs in a background thread so the page stays responsive; falls back to the page itself if workers are unavailable.
 function simulateAway(input) {

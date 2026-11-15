@@ -13,6 +13,7 @@
 <body>
   <header class="topbar">
     <button type="button" class="brand" id="open-menu" aria-haspopup="dialog" aria-controls="menu">
+      <svg class="menu-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
       <svg viewBox="0 0 48 48" fill="none" aria-hidden="true">
         <circle cx="24" cy="26" r="11" fill="#e9a21b"/>
         <path d="M4 34h40" stroke="var(--paper)" stroke-width="7"/>
@@ -20,10 +21,6 @@
         <path d="M4 40h40" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
       </svg>
       Investment Simulator
-    </button>
-    <button type="button" id="open-palette" class="search-button">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-      Search <kbd>⌘K</kbd>
     </button>
   </header>
 
@@ -36,13 +33,6 @@
     </nav>
   </dialog>
 
-  <dialog id="palette" class="palette" aria-label="Search">
-    <form method="dialog" id="palette-form">
-      <label for="palette-input" class="visually-hidden">Ticker, saved portfolio or tab</label>
-      <input id="palette-input" autocomplete="off" spellcheck="false" placeholder="Ticker, saved portfolio or tab">
-    </form>
-    <p class="hint">Enter adds a ticker or portfolio to the Backtester comparison. Esc closes.</p>
-  </dialog>
 
   <main>
     <section id="backtester">

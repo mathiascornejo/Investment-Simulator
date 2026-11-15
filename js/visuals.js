@@ -43,11 +43,27 @@ const ICONS = {
   commodities: ["Commodities", '<path d="M12 3s6 7 6 11a6 6 0 0 1-12 0c0-4 6-11 6-11z"/>'],
   property: ["Real estate", '<path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/>'],
   international: ["International stocks", '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>'],
+  fund: ["Fund", '<path d="M12 3v9h9"/><path d="M20.5 15A9 9 0 1 1 9 3.5"/>'],
   portfolio: ["Saved portfolio", '<path d="M12 3 2 8l10 5 10-5-10-5z"/><path d="m2 13 10 5 10-5"/>'],
   tab: ["Tab", '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/>'],
   other: ["Listed security", '<circle cx="12" cy="12" r="8"/><path d="M12 8v8M8 12h8"/>'],
 };
-export const assetClass = (ticker) => Object.keys(CLASS_OF).find((k) => CLASS_OF[k].includes(ticker)) ?? "other";
+// Name clues for tickers not in the list above (Yahoo gives the fund's name, e.g. "iShares Gold Trust").
+const NAME_CLUES = [
+  ["bonds", /\b(bond|treasury|aggregate|fixed income|corporate debt)\b/i],
+  ["gold", /\b(gold|silver|platinum|palladium|precious)\b/i],
+  ["commodities", /\b(commodit|crude|oil|natural gas|agricult)/i],
+  ["property", /\b(real estate|reit|property|properties)\b/i],
+  ["international", /\b(international|emerging|global|world|europe|asia|japan|china|ex-us|ex us)\b/i],
+];
+// type is Yahoo's quoteType: a fund of unknown kind gets the fund icon, a company the stocks icon.
+export function assetClass(ticker, name = "", type = "") {
+  const known = Object.keys(CLASS_OF).find((k) => CLASS_OF[k].includes(ticker));
+  if (known) return known;
+  const clue = NAME_CLUES.find(([, re]) => re.test(name));
+  if (clue && type !== "EQUITY") return clue[0];
+  return type === "EQUITY" ? "stocks" : type === "ETF" || type === "MUTUALFUND" ? "fund" : "other";
+}
 
 export function glyph(kind) {
   const [title, paths] = ICONS[kind] ?? ICONS.other;

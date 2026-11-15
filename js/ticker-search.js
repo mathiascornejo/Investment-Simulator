@@ -1,34 +1,8 @@
 // Ticker search inside a text box, modelled on the King Crab House search: suggestions drop down
 // under the box as you type; ↑ ↓ Enter pick one, Esc closes.
-// The ~40 named tickers below come first; tickers.csv ("TICKER,EXCHANGE") adds every active stock and ETF Tiingo
-// lists on NYSE, Nasdaq, NYSE Arca/American, Cboe BZX, Shanghai and Shenzhen (no company names; regenerate from
-// Tiingo's supported_tickers.zip). Not a live lookup: anything typed that isn't listed is offered as "Use XYZ".
+// Suggestions come only from Yahoo (via the proxy) plus the saved portfolios passed in as extra(); there is no local ticker list.
 import { PROXY_URL } from "./data.js";
 import { glyph, assetClass } from "./visuals.js";
-const TICKERS = [
-  ["SPY", "SPDR S&P 500 ETF"], ["VOO", "Vanguard S&P 500 ETF"], ["VTI", "Vanguard Total Stock Market ETF"],
-  ["QQQ", "Invesco QQQ (Nasdaq-100)"], ["IWM", "iShares Russell 2000 ETF"], ["DIA", "SPDR Dow Jones Industrial ETF"],
-  ["VXUS", "Vanguard Total International Stock ETF"], ["VEA", "Vanguard Developed Markets ETF"],
-  ["VWO", "Vanguard Emerging Markets ETF"], ["EFA", "iShares MSCI EAFE ETF"], ["BND", "Vanguard Total Bond Market ETF"],
-  ["AGG", "iShares Core U.S. Aggregate Bond ETF"], ["TLT", "iShares 20+ Year Treasury Bond ETF"],
-  ["IEF", "iShares 7-10 Year Treasury Bond ETF"], ["SHY", "iShares 1-3 Year Treasury Bond ETF"],
-  ["LQD", "iShares Investment Grade Corporate Bond ETF"], ["HYG", "iShares High Yield Corporate Bond ETF"],
-  ["GLD", "SPDR Gold Shares"], ["SLV", "iShares Silver Trust"], ["USO", "United States Oil Fund"],
-  ["VNQ", "Vanguard Real Estate ETF"], ["XLK", "Technology Select Sector SPDR"], ["XLF", "Financial Select Sector SPDR"],
-  ["XLE", "Energy Select Sector SPDR"], ["XLV", "Health Care Select Sector SPDR"], ["VFINX", "Vanguard 500 Index Fund"],
-  ["VTSAX", "Vanguard Total Stock Market Index Fund"], ["AAPL", "Apple"], ["MSFT", "Microsoft"], ["AMZN", "Amazon"],
-  ["GOOGL", "Alphabet (Class A)"], ["META", "Meta Platforms"], ["NVDA", "NVIDIA"], ["TSLA", "Tesla"],
-  ["BRK-B", "Berkshire Hathaway (Class B)"], ["JPM", "JPMorgan Chase"], ["JNJ", "Johnson & Johnson"],
-  ["XOM", "Exxon Mobil"], ["KO", "Coca-Cola"],
-];
-fetch(new URL("./tickers.csv", import.meta.url)).then((r) => r.ok ? r.text() : "").then((text) => {
-  const known = new Set(TICKERS.map(([t]) => t));
-  for (const line of text.split("\n")) {
-    const [t, ex] = line.split(",");
-    if (t && !known.has(t)) TICKERS.push([t, ex]);
-  }
-}).catch(() => {}); // offline or missing file: the short list still works
-
 // Adds suggestions to `input`. extra(): more [text, hint] entries listed before the tickers (saved portfolios).
 // shortcut: a portfolio name containing a comma is searched from after its last comma.
 // multi: the box holds a comma list and only the last entry is searched.
@@ -48,28 +22,31 @@ export function attachTickerSearch(input, { multi = false, extra = () => [], onP
 
   let hits = [], at = 0, remote = [], remoteFor = "", timer;
   const start = () => (multi ? input.value.search(/[^,\s]*$/) : 0); // where the entry being typed begins
+  const typed = () => input.value.slice(start()).trim().toUpperCase();
+  const rank = ([t], q) => (t.toUpperCase() === q ? 2 : t.toUpperCase().startsWith(q) ? 1 : 0); // exact, then prefix
   const close = () => { list.hidden = true; input.setAttribute("aria-expanded", "false"); };
 
   function render() {
     const q = input.value.slice(start()).trim().toUpperCase();
     const mine = remoteFor === q ? remote : []; // name matches from Yahoo, for the text as typed now
-    hits = q ? [...extra(), ...mine, ...TICKERS.filter(([t]) => !mine.some(([m]) => m === t))].filter(([t, name]) => t.toUpperCase().includes(q) || name.toUpperCase().includes(q) || mine.some((m) => m[0] === t))
-      .sort((a, b) => Number(b[0].toUpperCase().startsWith(q)) - Number(a[0].toUpperCase().startsWith(q))).slice(0, 10) : [];
-    if (q && /^[A-Z0-9.-]{1,10}$/.test(q) && !hits.some(([t]) => t.toUpperCase() === q)) hits.push([q, "Use this ticker"]);
-    // A finished ticker shows no list, so Enter still submits the form.
-    if (!hits.length || hits[0][0].toUpperCase() === q) return close();
+    hits = q ? [...extra().filter(([t, name]) => t.toUpperCase().includes(q) || name.toUpperCase().includes(q)), ...mine]
+      .sort((a, b) => rank(b, q) - rank(a, q)).slice(0, 10) : [];
+    if (q && /^[A-Z0-9.-]{1,12}$/.test(q) && !hits.some(([t]) => t.toUpperCase() === q)) hits.push([q, "Use this ticker"]);
+    // A finished ticker still shows the list (exact match first) so a near miss can be corrected.
+    if (!hits.length) return close();
     at = Math.min(at, hits.length - 1);
-    list.replaceChildren(...hits.map(([t, name], k) => {
+    list.replaceChildren(...hits.map(([t, name, type], k) => {
       const li = document.createElement("li");
       li.setAttribute("role", "option");
       li.setAttribute("aria-selected", k === at);
       li.dataset.k = k;
+      li.title = `${t} · ${name}`; // full text when the row is cut short
       const b = document.createElement("strong");
       b.textContent = t; // textContent, never innerHTML, for anything typed
       const hint = document.createElement("span");
       hint.className = "hint";
       hint.textContent = name;
-      li.append(glyph(name === "Saved portfolio" ? "portfolio" : name === "Tab" ? "tab" : assetClass(t)), b, hint);
+      li.append(glyph(name === "Saved portfolio" ? "portfolio" : name === "Tab" ? "tab" : assetClass(t, name, type)), b, hint);
       return li;
     }));
     list.hidden = false;
@@ -91,14 +68,18 @@ export function attachTickerSearch(input, { multi = false, extra = () => [], onP
   // Names aren't in the local list, so ask the proxy (Yahoo search) a moment after typing stops.
   function lookup() {
     const q = input.value.slice(start()).trim().toUpperCase();
-    if (q.length < 2) return;
+    const done = () => { if (document.activeElement === input && input.value.slice(start()).trim().toUpperCase() === q) render(); };
     fetch(`${PROXY_URL}/search?q=${encodeURIComponent(q)}`).then((r) => r.ok ? r.json() : []).then((rows) => {
-      remote = rows.map((x) => [x.symbol.toUpperCase(), [x.name, x.exchange].filter(Boolean).join(" · ")]);
+      remote = rows.map((x) => [x.symbol.toUpperCase(), [x.name, x.exchange].filter(Boolean).join(" · "), x.type]);
       remoteFor = q;
-      if (document.activeElement === input && input.value.slice(start()).trim().toUpperCase() === q) render();
-    }).catch(() => {}); // offline or blocked: local suggestions still work
+    }).catch(() => {}).then(done); // offline or blocked: fall back to the local list
   }
-  input.addEventListener("input", () => { at = 0; render(); clearTimeout(timer); timer = setTimeout(lookup, 250); });
+  // From 2 characters the list waits for Yahoo (kept as it was meanwhile) so it never shows a local guess first.
+  input.addEventListener("input", () => {
+    at = 0; clearTimeout(timer);
+    if (typed().length < 2) return render();
+    timer = setTimeout(lookup, 150);
+  });
   input.addEventListener("blur", close);
   input.addEventListener("keydown", (e) => {
     if (list.hidden) return;
@@ -107,6 +88,8 @@ export function attachTickerSearch(input, { multi = false, extra = () => [], onP
       at = (at + (e.key === "ArrowDown" ? 1 : -1) + hits.length) % hits.length;
       render();
     } else if (e.key === "Enter") {
+      // Enter on the exact ticker already typed just closes the list and lets the form submit.
+      if (!onPick && hits[at][0].toUpperCase() === typed()) return close();
       e.preventDefault();
       choose(at);
     } else if (e.key === "Escape") close();

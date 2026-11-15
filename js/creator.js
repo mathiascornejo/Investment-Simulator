@@ -3,6 +3,7 @@ import { fetchPrices } from "./data.js";
 import { summarize, correlation, windowOf } from "./stats.js";
 import { REBALANCE_RULES, loadPortfolios, savePortfolios, portfolioSeries } from "./portfolios.js";
 import { attachTickerSearch } from "./ticker-search.js";
+import { dropdown, liveField } from "./fields.js";
 import { pct, num, longDate, show, element } from "./format.js";
 import { COLORS, frame } from "./backtester.js";
 import { glyph, assetClass, countUp, toast } from "./visuals.js";
@@ -43,6 +44,8 @@ function addHolding(ticker = "", weight = "") {
   const row = Object.assign(element("div", tickerInput, weightInput, remove), { className: "holding" });
   $("holdings").append(row);
   attachTickerSearch(tickerInput); // after append: it wraps the input in place
+  liveField(tickerInput, { compact: true });
+  liveField(weightInput, { compact: true });
 }
 
 const readHoldings = () =>
@@ -95,7 +98,7 @@ function readForm() {
   if (!name) return "Give the portfolio a name.";
   if (name !== editing && loadPortfolios().some((p) => p.name === name)) return `You already have a portfolio called ${name}. Pick another name.`;
   if (!holdings.length) return "Add at least one holding.";
-  if (tickers.some((t) => !/^[A-Z0-9-]{1,10}$/.test(t))) return "Every holding needs a ticker made of letters, digits or dashes.";
+  if (tickers.some((t) => !/^[A-Z0-9.-]{1,12}$/.test(t))) return "Every holding needs a ticker made of letters, digits, dots or dashes.";
   if (new Set(tickers).size < tickers.length) return "Each ticker can appear only once. Combine the duplicates.";
   if (holdings.some((h) => !(h.weight > 0))) return "Every holding needs a weight above 0.";
   if (Math.abs(holdings.reduce((sum, h) => sum + h.weight, 0) - 100) >= 0.005) return "The weights must add up to 100%.";
@@ -269,4 +272,15 @@ function drawCorrelation(portfolio, prices, points) {
 
 // Start
 $("rebalance").replaceChildren(...Object.entries(REBALANCE_RULES).map(([value, label]) => new Option(label, value)));
+dropdown($("rebalance"), {
+  help: {
+    none: "Weights drift with the market; no rebalancing trades.",
+    monthly: "Back to target weights at the start of each month.",
+    quarterly: "Back to target weights every three months.",
+    annual: "Back to target weights once a year.",
+    band: "Rebalance only when a holding is further from its target than the limit you set.",
+  },
+});
+dropdown(picker);
+liveField($("band"), { compact: true });
 edit();

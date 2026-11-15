@@ -5,7 +5,7 @@ import { attachTickerSearch } from "./ticker-search.js";
 import { windowOf, summarize, drawdowns, periodReturns } from "./stats.js";
 import { loadPortfolios, portfolioSeries } from "./portfolios.js";
 import { pct, num, money, moneyCompact, longDate, monthLabel, show, element } from "./format.js";
-import { sparkline, glyph, assetClass, countUp } from "./visuals.js";
+import { glyph, assetClass, countUp } from "./visuals.js";
 import { term } from "./glossary.js";
 
 const BENCHMARK = "SPY"; // beta is measured against this
@@ -26,23 +26,17 @@ const status = $("compare-status");
 const input = $("tickers");
 let chips = ["SPY", "BND"]; // what is being compared, in colour order: a ticker or a saved portfolio's name
 
-// Adds a ticker or saved portfolio to the comparison and redraws (also used by the ⌘K palette).
+// Adds a ticker or saved portfolio to the comparison and redraws.
 export function addToCompare(label) {
   if (!chips.some((c) => c.toUpperCase() === label.toUpperCase())) chips.push(label);
   if (location.hash !== "#backtester") location.hash = "#backtester";
   form.requestSubmit();
 }
 
+input.addEventListener("input", () => { input.value = input.value.replace(/[^A-Za-z0-9.\- ]/g, ""); }); // tickers and portfolio names only
 attachTickerSearch(input, { extra: () => loadPortfolios().map((p) => [p.name, "Saved portfolio"]), onPick: addToCompare });
 input.addEventListener("keydown", (event) => {
-  if (event.key === "," && input.value.trim()) {
-    event.preventDefault();
-    chips.push(input.value.trim());
-    input.value = "";
-    renderChips();
-  } else if (event.key === "Backspace" && !input.value && chips.length) {
-    removeChip(chips.at(-1));
-  }
+  if (event.key === "Backspace" && !input.value && chips.length) removeChip(chips.at(-1));
 });
 
 function removeChip(label) {
@@ -53,7 +47,7 @@ function removeChip(label) {
   say("");
 }
 
-// One chip per compared line: colour, kind of asset, a sparkline and the change over the chosen period.
+// One chip per compared line: colour, kind of asset, the change over the chosen period.
 function renderChips(windows = []) {
   $("chips").replaceChildren(
     ...chips.map((label, i) => {
@@ -67,7 +61,7 @@ function renderChips(windows = []) {
       const parts = [dot, glyph(isPortfolio ? "portfolio" : assetClass(label)), label];
       if (w) {
         const change = w.points.at(-1).adjClose / w.points[0].adjClose - 1;
-        parts.push(sparkline(w.points, w.color), Object.assign(element("span", pct.format(change)), { className: `chg ${change < 0 ? "loss" : "gain"}` }));
+        parts.push(Object.assign(element("span", pct.format(change)), { className: `chg ${change < 0 ? "loss" : "gain"}` }));
       }
       return Object.assign(element("li", ...parts, remove), { className: "chip" });
     }),
@@ -81,7 +75,7 @@ const state = {
   max: "", // last date every asset has
   start: "",
   end: "",
-  preset: "1",
+  preset: "12",
   log: false,
   keyLength: 4, // 4 = returns by year, 7 = by month
   heat: 0, // which line the monthly heatmap shows
@@ -146,8 +140,8 @@ form.addEventListener("submit", async (event) => {
     if (found.test(text)) { picked.push(p); text = text.replace(found, "$1"); }
   }
   const tickers = [...new Set(text.toUpperCase().split(/[\s,]+/).filter(Boolean))];
-  if (tickers.some((t) => !/^[A-Z0-9-]{1,10}$/.test(t))) {
-    say("Tickers can only contain letters, digits and dashes. Separate them with commas.", true);
+  if (tickers.some((t) => !/^[A-Z0-9.-]{1,12}$/.test(t))) {
+    say("Tickers can only contain letters, digits, dots and dashes.", true);
     return;
   }
   // Portfolios first, then tickers. A line's colour comes from its position in this list.
