@@ -479,7 +479,7 @@ function drawReturns(windows) {
         barGap: "10%",
         itemStyle: { color: w.color },
         emphasis: { disabled: true },
-        markPoint: badges(byPeriod[i], windows.length),
+        markPoint: badges(byPeriod[i], windows.length, i),
         data: periods.map((key) => {
           const p = byPeriod[i].get(key);
           if (!p) return null;
@@ -493,7 +493,7 @@ function drawReturns(windows) {
 }
 
 // Best and worst full period of a line, called out on the bars. Only for one or two lines: more gets cluttered.
-function badges(periods, lineCount) {
+function badges(periods, lineCount, index) {
   const full = [...periods.values()].filter((p) => !p.partial);
   if (lineCount > 2 || full.length < 2) return undefined;
   const best = full.reduce((a, b) => (b.value > a.value ? b : a));
@@ -505,7 +505,7 @@ function badges(periods, lineCount) {
     label: { fontSize: 11, fontWeight: 700, padding: [3, 7], borderRadius: 8 },
     data: [
       badge(best, "Best", { position: "top", color: "#fff", backgroundColor: INK }),
-      badge(worst, "Worst", { position: "bottom", color: "#b3372b", backgroundColor: "#fff", borderColor: "#b3372b", borderWidth: 1 }),
+      badge(worst, "Worst", { position: "bottom", offset: [index ? 34 : -34, 0], /* sideways so two lines' badges in one period never stack */ color: "#b3372b", backgroundColor: "#fff", borderColor: "#b3372b", borderWidth: 1 }),
     ],
   };
 }
