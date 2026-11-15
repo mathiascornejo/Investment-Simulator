@@ -40,12 +40,12 @@ async function pse(symbol) {
   return rows.length ? { body: JSON.stringify(rows) } : { status: 404 };
 }
 
-// PSE name/symbol matches for the ticker box, as SYMBOL.PS; failures just mean no PSE rows.
+// PSE name/symbol matches for the ticker box, as SYMBOL.PS; null if PSE Edge failed (then the reply isn't cached).
 async function searchPse(q) {
   try {
     const res = await fetch(`${PSE}/autoComplete/searchCompanyNameSymbol.ax?term=${encodeURIComponent(q)}`);
     return (await res.json()).slice(0, 3).map((x) => ({ symbol: `${x.symbol}.PS`, name: x.cmpyNm, exchange: "Philippine Stock Exchange", type: "EQUITY" }));
-  } catch { return []; }
+  } catch { return null; }
 }
 
 // Company-name lookup for the ticker box, from Yahoo's unofficial search (same caveats as yahoo()).
@@ -60,8 +60,9 @@ async function search(q, cors) {
   const quotes = (await res.json()).quotes || [];
   const rows = quotes.filter((x) => ["EQUITY", "ETF", "MUTUALFUND"].includes(x.quoteType) && x.symbol)
     .map((x) => ({ symbol: x.symbol, name: x.longname || x.shortname || "", exchange: x.exchDisp || "", type: x.quoteType }));
-  rows.push(...await phRows);
-  return json(rows, 200, { ...cors, "Cache-Control": "public, max-age=3600" });
+  const ph = await phRows;
+  rows.push(...ph || []);
+  return json(rows, 200, { ...cors, ...ph && { "Cache-Control": "public, max-age=3600" } });
 }
 
 export default {

@@ -70,7 +70,7 @@ export function attachTickerSearch(input, { multi = false, extra = () => [], onP
   function lookup() {
     const q = input.value.slice(start()).trim().toUpperCase();
     const done = () => { if (document.activeElement === input && input.value.slice(start()).trim().toUpperCase() === q) render(); };
-    fetch(`${PROXY_URL}/search?q=${encodeURIComponent(q)}`).then((r) => r.ok ? r.json() : []).then((rows) => {
+    fetch(`${PROXY_URL}/search?v=2&q=${encodeURIComponent(q)}`).then((r) => r.ok ? r.json() : []).then((rows) => {
       remote = rows.map((x) => [x.symbol.toUpperCase(), [x.name, x.exchange].filter(Boolean).join(" · "), x.type]);
       remoteFor = q;
     }).catch(() => {}).then(done); // offline or blocked: fall back to the local list
