@@ -90,6 +90,7 @@ Add one line per folder/file as it is created, so chats don't need to search.
 - Git: this repo pushes over HTTPS using the `gh` login, and commits use the GitHub no-reply email (both set in the repo's local git config).
 
 ## Working rules
+- Commit and push every change immediately after making it (`git add -A`, commit, `git push` to `main`); never leave work uncommitted or unpushed.
 - Check this file first; do not re-research settled decisions.
 - Smallest change that fully works; no features nobody asked for.
 - New calculation logic (returns, drawdown, beta, Monte Carlo) gets a small test against a known value.
