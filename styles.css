@@ -468,7 +468,11 @@ button:disabled {
 }
 .panel > .block:first-child { margin-top: 0; padding-top: 0; border-top: 0; } /* the panel's own rule already opens it */
 .block .toolbar { margin-top: 1rem; flex-wrap: nowrap; gap: 0.5rem; } /* one line; the groups shrink first */
-.toolbar .notch { min-width: 0; }
+.toolbar .notch { min-width: 0; white-space: nowrap; }
+.toolbar .segmented button { padding-inline: 0.5rem; }
+.toolbar input[type="date"] { width: 8.75rem; padding-inline: 0.5rem; font-size: 0.8125rem; }
+/* Too narrow for one line (phones, small windows): let the groups wrap instead of overflowing. */
+@media (max-width: 72rem) { .block .toolbar { flex-wrap: wrap; } }
 .block-head { display: contents; } /* its title joins the rail, its controls join the content */
 .block > :not(h2), .block-head > :not(h2) { grid-column: 2; min-width: 0; }
 .block h2 {
