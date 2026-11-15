@@ -34,6 +34,7 @@ A web app that simulates portfolios and single assets against each other. Educat
 | Chart colours | DECIDED — series colours in fixed order, validated colour-blind safe on white: `#2a78d6`, `#eb6834`, `#1baf7a`, `#eda100`, `#e87ba4` (first 5; the Backtester adds 5 unvalidated extras for up to 10 series). Colour follows the asset, never its rank. Text is never series-coloured; always show a legend and the stats table. |
 | Non-US prices | DECIDED (2026-11-15) — Yahoo Finance's unofficial chart endpoint, called only from the Worker: used for tickers with a dot (`VOD.L`, `7203.T`) and as the fallback when Tiingo 404s. Dividend-adjusted, global, free, but unlicensed (its terms bar redistribution) and may break or block. Prices are in the listing currency (London in pence); the app does not convert currencies. Needs `npx wrangler deploy` to go live. |
 | Form controls | DECIDED (2026-11-15) — "live feedback" (option 10 of 10 explored): fields are checked as you type (tick draws in, or the box shakes red with a reason), dropdowns are custom menus with a check mark and a one-line explanation of the chosen option. Not applied to the Backtester date boxes, chip box or ⌘K palette. |
+| Section separation | DECIDED (2026-11-15) — option 4: each `.block` is a two-column grid; the title sits in a 9rem left rail in small caps with a blue bar, content on the right; stacks under 40rem. |
 | Known risk | Tiingo's free and $30 plans are "internal use only"; a public site showing its prices is outside that licence. Revisit before sharing the URL. |
 
 ## Project map
@@ -46,7 +47,7 @@ Add one line per folder/file as it is created, so chats don't need to search.
 - `js/format.js` — shared number/date formatters, `show()` and the `element()` DOM helper. Use these; don't add new formatters per tab.
 - `js/visuals.js` — `sparkline`, `glyph`/`assetClass` (asset-class icons; unknown tickers get a neutral icon), `countUp`, `gauge`, `slidingPill` (every `.segmented`, follows `aria-pressed`), `toast` (Undo).
 - `js/glossary.js` — `term(label)`: dotted-underline words with a plain-English definition popover (top layer, never clipped). Static headings use `data-term`.
-- `section-options.html` — 6 ways to make sections obvious (2026-11-15), awaiting the owner's pick; not yet applied to the site; not linked.
+- `section-options.html` — 6 ways to make sections obvious (2026-11-15); the owner picked option 4 (label rail with blue marker), now in `.block` in `styles.css`. Reference only, not linked.
 - `design-options.html` — the 20 looks / 30 elements explored on 2026-11-15; reference only, not linked from the site.
 - `js/fields.js` — `liveField(input, {compact, clear})` (tick / shake + reason from the input's min, max, step; tickers get a format check) and `dropdown(select, {help})` (menu over a hidden native select, which stays the source of truth: `.value`, `change` and option changes still work). Used by Creator (rebalance, picker, holdings, band) and Monte Carlo. Styles: `.fx`, `.dd`, `.help` in `styles.css`.
 - `js/montecarlo.js` — pure simulation maths, tested by `js/montecarlo.test.js`: `walk` (one balance through a list of monthly returns), `simulate` (optional `samples` = that many runs' yearly paths; typed arrays, year by year: 1M runs x 30 years ~10 s, ~60 MB), `percentile`, `crisisTest`, `historicalRun`, `CRISES`.
