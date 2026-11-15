@@ -270,7 +270,7 @@ for (const id of ["growth-chart", "drawdown-chart"]) {
     const [start, end] = [Date.parse(state.start), Date.parse(state.end)];
     // Like TradingView: while the latest date is showing, it stays put and the left side moves.
     const at = state.end === state.max ? end : Math.min(Math.max(msAt(event), start), end);
-    const k = event.deltaY < 0 ? 0.8 : 1.25; // in: shrink the span around the pointer
+    const k = event.deltaY < 0 ? 0.98 : 1.02; // in: shrink the span around the pointer
     setSpan(at - (at - start) * k, at + (end - at) * k);
   }, { passive: false });
   box.addEventListener("pointerdown", (event) => {
@@ -280,7 +280,7 @@ for (const id of ["growth-chart", "drawdown-chart"]) {
     const msPerPx = (msAt({ offsetX: x0 + 100 }) - msAt({ offsetX: x0 })) / 100;
     // Dragging along the date axis (bottom strip) stretches the range instead of moving it.
     if (event.offsetY > box.clientHeight - 30) {
-      box.onpointermove = (e) => setSpan(end - (end - start) * 1.005 ** ((x0 - e.offsetX)), end);
+      box.onpointermove = (e) => setSpan(end - (end - start) * 1.0005 ** ((x0 - e.offsetX)), end);
     } else box.onpointermove = (e) => setSpan(start - (e.offsetX - x0) * msPerPx, end - (e.offsetX - x0) * msPerPx);
     box.onpointerup = () => { box.onpointermove = box.onpointerup = null; };
   });
