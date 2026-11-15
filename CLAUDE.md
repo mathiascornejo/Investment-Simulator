@@ -8,7 +8,7 @@ A web app that simulates portfolios and single assets against each other. Educat
 ## Tabs
 1. **Simulation / Backtester** — compare portfolios side by side: monthly/annual gain, CAGR, volatility, max drawdown, beta, Sharpe/Sortino, best/worst year, and the difference between portfolios. Growth chart + drawdown chart, with a time-range selector (1M, 1Y, 3Y, 5Y, 10Y, Max, custom).
 2. **Portfolio Creator** — build portfolios from stocks, bonds, funds, commodities, etc. Set weights, rebalancing rule (none / monthly / quarterly / annual / drift band), and other options. Show a portfolio profile (sector, geographic concentration, asset mix, characteristics) modelled on Vanguard's VOO profile page. The owner's words were "until the portfolio composition part"; since they asked for sector and geographic mix, which sit inside that section on Vanguard's page, read it as up to and including it (unconfirmed).
-3. **Monte Carlo** — thousands of randomized runs for a selected portfolio: failure rate, probability cones (percentile bands). Stress tests against historical crises (2008 crash, 2020 downturn).
+3. **Monte Carlo Simulation** — thousands of randomized runs for a selected portfolio: failure rate, probability cones (percentile bands). Stress tests against historical crises (2008 crash, 2020 downturn).
 
 ## Finance rules (do not break)
 - Always use split- and dividend-adjusted (total return) prices for returns.
