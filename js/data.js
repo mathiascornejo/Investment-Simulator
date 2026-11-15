@@ -1,4 +1,5 @@
 import { deflate } from "./inflation.js";
+import { TBILLS, fetchTbill } from "./tbills.js";
 // Address of the Cloudflare Worker proxy (see worker/), as printed by `npx wrangler deploy`.
 export const PROXY_URL = "https://investment-simulator-proxy.investmentsimulator.workers.dev";
 
@@ -40,6 +41,7 @@ export async function fetchPrices(ticker) {
 
 function fetchNominal(ticker) {
   if (ticker === "CASH") return Promise.resolve(cashSeries());
+  if (ticker in TBILLS) return fetchTbill(ticker); // static file in the repo, not the proxy
   if (!loading.has(ticker)) {
     const promise = request(ticker);
     promise.catch(() => loading.delete(ticker)); // a failed load can be tried again

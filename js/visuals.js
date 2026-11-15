@@ -34,7 +34,7 @@ const CLASS_OF = {
   commodities: ["USO"],
   property: ["VNQ"],
   international: ["VXUS", "VEA", "VWO", "EFA"],
-  cash: ["CASH"],
+  cash: ["CASH", "TBILL91", "TBILL182", "TBILL364"],
   stocks: ["SPY", "VOO", "VTI", "QQQ", "IWM", "DIA", "XLK", "XLF", "XLE", "XLV", "VFINX", "VTSAX", "AAPL", "MSFT", "AMZN", "GOOGL", "META", "NVDA", "TSLA", "BRK-B", "JPM", "JNJ", "XOM", "KO"],
 };
 const ICONS = {
