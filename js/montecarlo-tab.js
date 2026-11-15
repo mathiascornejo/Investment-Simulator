@@ -1,11 +1,13 @@
 // Monte Carlo tab: simulate many futures for one portfolio (or ticker) and show past crises.
 // The maths lives in montecarlo.js; this file is inputs, loading and drawing.
 import { fetchPrices } from "./data.js";
+import { attachTickerSearch } from "./ticker-search.js";
 import { periodReturns } from "./stats.js";
 import { loadPortfolios, portfolioSeries } from "./portfolios.js";
 import { simulate, crisisTest, historicalRun, CRISES } from "./montecarlo.js";
 import { pct, money, moneyCompact, longDate, monthLabel, element } from "./format.js";
 import { frame } from "./backtester.js";
+
 
 const BENCHMARK = "SPY";
 const MIN_MONTHS = 24; // fewer real months than this is too little history to resample from
@@ -15,6 +17,7 @@ const MIDDLE_50 = "#9ec5f4";
 const MIDDLE_80 = "#cde2fb";
 
 const $ = (id) => document.getElementById(id);
+attachTickerSearch($("mc-ticker"));
 const form = $("mc-form");
 const status = $("mc-status");
 const rate = new Intl.NumberFormat(undefined, { style: "percent", maximumFractionDigits: 1 });

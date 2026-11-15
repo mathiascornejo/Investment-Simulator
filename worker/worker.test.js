@@ -63,3 +63,21 @@ test("passes on Tiingo errors and does not cache them", async () => {
   assert.equal(res.headers.get("Access-Control-Allow-Origin"), ORIGIN);
   assert.equal(store.size, 0);
 });
+
+test("dotted tickers go straight to Yahoo and come back as date + adjClose", async () => {
+  const yahooJson = { chart: { result: [{ meta: { exchangeTimezoneName: "Europe/London" }, timestamp: [1577955600, 1578042000, 1578128400],
+    indicators: { adjclose: [{ adjclose: [10, null, 12] }] } }] } };
+  const { get, calls } = setup(() => new Response(JSON.stringify(yahooJson)));
+  const res = await get("/prices?ticker=vod.l");
+  assert.deepEqual(await res.json(), [{ date: "2020-01-02", adjClose: 10 }, { date: "2020-01-04", adjClose: 12 }]);
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].url, /query1\.finance\.yahoo\.com\/v8\/finance\/chart\/VOD\.L/);
+});
+
+test("a ticker Tiingo doesn't know falls back to Yahoo", async () => {
+  const { get, calls } = setup(() => calls.length === 1 ? new Response("{}", { status: 404 })
+    : new Response(JSON.stringify({ chart: { result: [{ timestamp: [1577955600], indicators: { adjclose: [{ adjclose: [5] }] } }] } })));
+  const res = await get("/prices?ticker=XYZ");
+  assert.deepEqual(await res.json(), [{ date: "2020-01-02", adjClose: 5 }]);
+  assert.equal(calls.length, 2);
+});

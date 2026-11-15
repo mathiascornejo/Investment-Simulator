@@ -1,6 +1,7 @@
 // Backtester tab: load tickers, pick a period, draw three charts and a statistics table.
 // All maths lives in stats.js; this file is fetching, state and drawing.
 import { fetchPrices } from "./data.js";
+import { attachTickerSearch } from "./ticker-search.js";
 import { windowOf, summarize, drawdowns, periodReturns } from "./stats.js";
 import { loadPortfolios, portfolioSeries } from "./portfolios.js";
 import { pct, num, money, moneyCompact, longDate, monthLabel, show, element } from "./format.js";
@@ -18,6 +19,8 @@ const AXIS = "#c5ccc4";
 
 const $ = (id) => document.getElementById(id);
 const form = $("compare-form");
+
+attachTickerSearch($("tickers"), { multi: true, extra: () => loadPortfolios().map((p) => [p.name, "Saved portfolio"]) });
 const status = $("compare-status");
 
 const state = {
@@ -66,33 +69,25 @@ function say(text, isError = false) {
 
 const yearsBefore = (date, years) => `${date.slice(0, 4) - years}${date.slice(4)}`;
 
-// Saved portfolios appear as checkboxes above the tickers box.
-function listPortfolios() {
-  const checked = new Set([...$("portfolio-checks").querySelectorAll(":checked")].map((box) => box.value));
-  const saved = loadPortfolios();
-  $("portfolio-picks").hidden = !saved.length;
-  $("portfolio-checks").replaceChildren(
-    ...saved.map((p) => {
-      const box = Object.assign(element("input"), { type: "checkbox", value: p.name, checked: checked.has(p.name) });
-      return Object.assign(element("label", box, p.name), { className: "check" });
-    }),
-  );
-}
-addEventListener("portfolios-changed", listPortfolios);
-listPortfolios();
-
 // Loading
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const tickers = [...new Set($("tickers").value.toUpperCase().split(/[\s,]+/).filter(Boolean))];
+  // Saved portfolios are typed by name (names may hold spaces), so lift those out; what's left is tickers.
+  let text = $("tickers").value;
+  const picked = [];
+  for (const p of [...loadPortfolios()].sort((a, b) => b.name.length - a.name.length)) {
+    const name = p.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const found = new RegExp(`(^|,)\\s*${name}\\s*(?=,|$)`, "i");
+    if (found.test(text)) { picked.push(p); text = text.replace(found, "$1"); }
+  }
+  const tickers = [...new Set(text.toUpperCase().split(/[\s,]+/).filter(Boolean))];
   if (tickers.some((t) => !/^[A-Z0-9-]{1,10}$/.test(t))) {
     say("Tickers can only contain letters, digits and dashes. Separate them with commas.", true);
     return;
   }
-  const picked = new Set([...$("portfolio-checks").querySelectorAll(":checked")].map((box) => box.value));
   // Portfolios first, then tickers. A line's colour comes from its position in this list.
   const lines = [
-    ...loadPortfolios().filter((p) => picked.has(p.name)).map((p) => ({ label: p.name, tickers: p.holdings.map((h) => h.ticker), portfolio: p })),
+    ...picked.map((p) => ({ label: p.name, tickers: p.holdings.map((h) => h.ticker), portfolio: p })),
     ...tickers.map((t) => ({ label: t, tickers: [t] })),
   ];
   if (!lines.length || lines.length > MAX_SERIES) {

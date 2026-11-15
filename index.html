@@ -32,16 +32,12 @@
       <h1>Backtester</h1>
 
       <form id="compare-form">
-        <fieldset id="portfolio-picks" hidden>
-          <legend>Portfolios to compare</legend>
-          <div id="portfolio-checks" class="checks"></div>
-        </fieldset>
         <label for="tickers">Tickers to compare</label>
         <div class="row">
           <input id="tickers" value="SPY, BND" autocomplete="off" spellcheck="false" aria-describedby="tickers-hint">
           <button type="submit">Compare</button>
         </div>
-        <p id="tickers-hint" class="hint">Stocks, ETFs or mutual funds, separated by commas. Up to 5 lines in total, counting portfolios.</p>
+        <p id="tickers-hint" class="hint">Stocks, ETFs, mutual funds or your saved portfolios, separated by commas. Up to 5 lines in total.</p>
       </form>
       <p id="compare-status" class="status" role="status"></p>
 
@@ -178,8 +174,10 @@
             <label for="mc-runs">Number of runs</label>
             <select id="mc-runs">
               <option value="1000">1,000</option>
-              <option value="5000" selected>5,000</option>
-              <option value="10000">10,000</option>
+              <option value="10000" selected>10,000</option>
+              <option value="50000">50,000</option>
+              <option value="100000">100,000</option>
+              <option value="1000000">1,000,000</option>
             </select>
           </div>
         </div>
