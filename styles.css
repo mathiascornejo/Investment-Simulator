@@ -686,3 +686,5 @@ button.term { padding: 0; border: 0; border-bottom: 1.5px dotted var(--field-bor
   .segmented .pill, .toast, .gauge .needle { transition: none; }
   .pop:popover-open { animation: none; }
 }
+
+.real { display: inline-flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem; font-size: 0.875rem; cursor: pointer; }

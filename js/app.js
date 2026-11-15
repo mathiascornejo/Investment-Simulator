@@ -29,6 +29,16 @@ addEventListener("keydown", (e) => { if (e.key === "Escape" && document.body.cla
 document.body.addEventListener("transitionend", (e) => { if (e.target === document.body) dispatchEvent(new Event("resize")); });
 showTab();
 
+// Inflation toggle: remembered, and every tab that is showing results re-runs them with real or nominal prices.
+const { inflation } = await import("./data.js");
+const real = document.getElementById("real-toggle");
+real.checked = inflation.real;
+real.addEventListener("change", () => {
+  inflation.real = real.checked;
+  localStorage.setItem("real", real.checked ? "1" : "0");
+  dispatchEvent(new Event("inflation-changed"));
+});
+
 // Each tab's own code. Imported after the tabs are set up so charts measure visible containers.
 await Promise.all([import("./backtester.js"), import("./creator.js"), import("./montecarlo-tab.js")]);
 

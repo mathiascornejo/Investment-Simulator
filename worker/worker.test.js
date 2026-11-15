@@ -105,3 +105,10 @@ test("search returns symbol, name and exchange for stocks and funds only", async
   assert.equal(calls.length, 4); // an empty query is not
   assert.equal((await get("/search?q=vodafone", "https://evil.example")).status, 403);
 });
+
+test("/cpi parses FRED's CSV and caches it", async () => {
+  const { get, calls } = setup(() => new Response("observation_date,CPIAUCNS\n2020-01-01,257.971\n2020-02-01,.\n2020-03-01,258.115\n"));
+  const res = await get("/cpi");
+  assert.deepEqual(await res.json(), [{ date: "2020-01-01", value: 257.971 }, { date: "2020-03-01", value: 258.115 }]);
+  assert.equal(calls.length, 1);
+});

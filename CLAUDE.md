@@ -38,6 +38,7 @@ A web app that simulates portfolios and single assets against each other. Educat
 | Section separation | DECIDED (2026-11-15) — option 4: each `.block` is a two-column grid; the title sits in a 9rem left rail in small caps with a blue bar, content on the right; stacks under 40rem. |
 | Toolbar labels | DECIDED (2026-11-15) — option 3 of `label-options.html`: Time horizon, Date range and Step each sit in a hairline frame (`.notch`) with the label on the border. |
 | Cash | DECIDED (2026-11-16) — type `CASH` (also offered first in every search box). `fetchPrices` returns a synthetic flat price (0% return, no interest, weekdays since 1990) instead of calling the Worker, so it works in portfolios, the Backtester and Monte Carlo. A real cash yield would need FRED rates. |
+| Inflation adjustment | DECIDED (2026-11-16) — one header toggle ("Inflation-adjusted", remembered in `localStorage` key `real`) switches every tab: `fetchPrices` then returns prices divided by US CPI-U (FRED keyless CSV, via Worker `GET /cpi`, cached 24 h), in today's dollars, so all maths (stats, portfolios, Monte Carlo balances/withdrawals) is real with no per-tab change. Toggling re-runs whatever each tab shows. CPI is US only, whatever the asset's currency. Months after the latest CPI reading reuse it. Needs `npx wrangler deploy`. |
 | Known risk | Tiingo's free and $30 plans are "internal use only"; a public site showing its prices is outside that licence. Revisit before sharing the URL. |
 
 ## Project map
@@ -59,6 +60,7 @@ Add one line per folder/file as it is created, so chats don't need to search.
 - `js/montecarlo-tab.js` — the Monte Carlo tab: inputs, loading, cone chart, crises table.
 - `js/backtester.js` — the Backtester tab: loads tickers and saved portfolios, holds the selected period, draws the three ECharts charts and the statistics table. It exports `frame()`, the shared ECharts options (axes, grid, tooltip): build every new chart on it so all charts look alike.
 - `js/ticker-search.js` — `attachTickerSearch(input, {multi})`: suggestions drop down under a ticker text box as you type (↑↓ Enter Esc), modelled on King Crab House's search. suggestions come only from Yahoo search via the Worker (no local ticker list; `tickers.csv` was deleted 2026-11-15); any typed symbol is offered as "Use XYZ". Takes `extra()` entries (saved portfolios, listed first). Used on the Backtester list, the Monte Carlo ticker and the Creator holding rows. Styles: `.suggest` in `styles.css`.
+- `js/inflation.js` — `deflate(points, cpi)` (CPI-interpolated; tested by `js/inflation.test.js`). `js/data.js` exports `inflation.real`.
 - `js/data.js` — `PROXY_URL` and `fetchPrices(ticker)` -> `[{ date, adjClose }]`, oldest first. All price loading goes through this.
 - `js/stats.js` — pure maths, tested by `js/stats.test.js` (`node --test js/stats.test.js`): `windowOf`, `totalReturn`, `cagr` (null under 1 year), `drawdowns`, `maxDrawdown`, `volatility`, `sharpe`, `sortino`, `beta`, `correlation`, `periodReturns` (yearly/monthly, flags partial periods), `summarize`. Uses daily returns, 252 trading days, 0% risk-free rate.
 - `worker/worker.js` — Cloudflare Worker proxy: `GET /prices?ticker=SPY` (Tiingo; Yahoo for dotted tickers and Tiingo misses). `worker/wrangler.jsonc` is its config, `worker/worker.test.js` its tests.
@@ -83,7 +85,7 @@ Add one line per folder/file as it is created, so chats don't need to search.
 
 ## Commands
 - Preview the site: `python3 -m http.server 8000`, then open http://localhost:8000
-- Run every test: `node --test js/stats.test.js js/portfolios.test.js js/montecarlo.test.js worker/worker.test.js`
+- Run every test: `node --test js/stats.test.js js/portfolios.test.js js/montecarlo.test.js js/inflation.test.js worker/worker.test.js`
 - Run the proxy locally: `(cd worker && npx wrangler dev)` — needs `worker/.dev.vars` containing `TIINGO_KEY=...`
 - Deploy the proxy: `(cd worker && npx wrangler deploy)`
 

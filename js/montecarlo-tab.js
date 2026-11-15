@@ -1,6 +1,6 @@
 // Monte Carlo tab: simulate many futures for one portfolio (or ticker) and show past crises.
 // The maths lives in montecarlo.js; this file is inputs, loading and drawing.
-import { fetchPrices } from "./data.js";
+import { fetchPrices, inflation } from "./data.js";
 import { attachTickerSearch } from "./ticker-search.js";
 import { dropdown, liveField } from "./fields.js";
 import { periodReturns } from "./stats.js";
@@ -156,7 +156,7 @@ form.addEventListener("submit", async (event) => {
   $("mc-method").textContent =
     `Method: historical bootstrap. Each run is built month by month, drawing every month at random (with replacement) from ` +
     `the ${months.length} real monthly returns of ${name} between ${monthLabel(months[0].period)} and ${monthLabel(months.at(-1).period)}. ` +
-    `Withdrawals are taken monthly.${annualContribution > 0 ? ` Contributions of ${moneyFit.format(annualContribution)} a year are added ${contributeMonthly ? "monthly" : "at the start of each year"} and stay the same every year.` : ""} Balances are in future dollars, not adjusted for inflation. ` +
+    `Withdrawals are taken monthly.${annualContribution > 0 ? ` Contributions of ${moneyFit.format(annualContribution)} a year are added ${contributeMonthly ? "monthly" : "at the start of each year"} and stay the same every year.` : ""} ${inflation.real ? "Balances, withdrawals and contributions are in today's dollars (inflation-adjusted)." : "Balances are in future dollars, not adjusted for inflation."} ` +
     `The future can be worse than anything in this history, and a short history makes the result less reliable.`;
 
   drawCrises(points, prices[BENCHMARK], { startValue, annualWithdrawal, growth, annualContribution, contributeMonthly });
@@ -274,3 +274,5 @@ function drawCrises(points, benchmark, { startValue, annualWithdrawal, growth, a
     element("tbody", ...rows),
   );
 }
+
+addEventListener("inflation-changed", () => { if (!$("mc-results").hidden) form.requestSubmit(); });

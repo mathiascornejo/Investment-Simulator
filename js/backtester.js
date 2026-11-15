@@ -618,3 +618,5 @@ function drawScatter(windows, stats) {
 }
 
 renderChips();
+
+addEventListener("inflation-changed", () => { if (!$("results").hidden) form.requestSubmit(); });

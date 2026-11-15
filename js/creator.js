@@ -283,3 +283,5 @@ dropdown($("rebalance"), {
 dropdown(picker);
 liveField($("band"), { compact: true });
 edit();
+
+addEventListener("inflation-changed", () => { const p = loadPortfolios().find((x) => x.name === editing); if (p) showProfile(p); });

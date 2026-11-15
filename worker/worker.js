@@ -65,6 +65,16 @@ async function search(q, cors) {
   return json(rows, 200, { ...cors, ...ph && { "Cache-Control": "public, max-age=3600" } });
 }
 
+// US consumer prices (CPI-U, not seasonally adjusted, monthly since 1913) from FRED's keyless CSV download,
+// as [{ date: "YYYY-MM-01", value }]. FRED publishes each month about two weeks after it ends.
+async function cpi() {
+  const res = await fetch("https://fred.stlouisfed.org/graph/fredgraph.csv?id=CPIAUCNS");
+  if (!res.ok) return null;
+  const rows = (await res.text()).trim().split("\n").slice(1).map((l) => l.split(","))
+    .filter(([d, v]) => /^\d{4}-\d\d-\d\d$/.test(d) && Number(v) > 0).map(([d, v]) => ({ date: d, value: Number(v) }));
+  return rows.length ? JSON.stringify(rows) : null;
+}
+
 export default {
   async fetch(request, env, ctx) {
     // Stops other websites using this proxy from a browser. A script can fake the Origin header,
@@ -75,6 +85,15 @@ export default {
 
     const url = new URL(request.url);
     if (request.method === "GET" && url.pathname === "/search") return search(url.searchParams.get("q") || "", cors);
+    if (request.method === "GET" && url.pathname === "/cpi") {
+      let body = await env.CACHE.get("_cpi"); // no ticker can start with "_"
+      if (body === null) {
+        body = await cpi().catch(() => null);
+        if (body === null) return json({ error: "The inflation data source is unavailable" }, 502, cors);
+        ctx.waitUntil(env.CACHE.put("_cpi", body, { expirationTtl: 24 * TTL_SECONDS }));
+      }
+      return new Response(body, { headers: { "Content-Type": "application/json", ...cors } });
+    }
     if (request.method !== "GET" || url.pathname !== "/prices") return json({ error: "Not found" }, 404, cors);
 
     const ticker = (url.searchParams.get("ticker") || "").toUpperCase();

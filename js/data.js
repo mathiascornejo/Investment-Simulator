@@ -1,3 +1,4 @@
+import { deflate } from "./inflation.js";
 // Address of the Cloudflare Worker proxy (see worker/), as printed by `npx wrangler deploy`.
 export const PROXY_URL = "https://investment-simulator-proxy.investmentsimulator.workers.dev";
 
@@ -16,7 +17,25 @@ export function cashSeries(end = new Date()) {
   return points;
 }
 
-export function fetchPrices(ticker) {
+// "Real" mode: every price series comes back in today's dollars (see inflation.js), so each tab's maths
+// (returns, drawdowns, Monte Carlo balances and withdrawals) is inflation-adjusted without knowing it.
+export const inflation = { real: localStorage.getItem("real") === "1" };
+let cpiLoading;
+function fetchCpi() {
+  cpiLoading ??= fetch(`${PROXY_URL}/cpi`).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`inflation data ${r.status}`))));
+  cpiLoading.catch(() => (cpiLoading = undefined));
+  return cpiLoading;
+}
+
+export async function fetchPrices(ticker) {
+  const nominal = await fetchNominal(ticker);
+  if (!inflation.real) return nominal;
+  let cpi;
+  try { cpi = await fetchCpi(); } catch { throw new Error("Couldn't load inflation data, so inflation-adjusted returns aren't available. Turn the option off to see nominal returns."); }
+  return deflate(nominal, cpi);
+}
+
+function fetchNominal(ticker) {
   if (ticker === "CASH") return Promise.resolve(cashSeries());
   if (!loading.has(ticker)) {
     const promise = request(ticker);
