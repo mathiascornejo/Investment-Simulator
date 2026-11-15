@@ -84,47 +84,47 @@ body {
 .search-button svg { width: 1rem; height: 1rem; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
 kbd { font: 600 0.75rem/1 var(--sans); padding: 0.1875rem 0.375rem; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; color: var(--muted); }
 
-/* Floating glass tab bar. Content scrolls underneath; the blur keeps it readable over charts. */
-.tabbar {
-  position: fixed;
-  z-index: 20;
-  left: 50%;
-  bottom: max(1rem, env(safe-area-inset-bottom));
-  translate: -50% 0;
-  display: flex;
-  gap: 0.125rem;
-  padding: 0.25rem;
-  border: 1px solid rgba(255, 255, 255, 0.7);
-  border-radius: 999px;
-  background: rgba(250, 250, 248, 0.62);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  box-shadow: 0 10px 30px rgba(26, 26, 26, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+/* Side menu: a modal dialog that slides in from the left when the logo is clicked. */
+.brand { border: 0; background: none; cursor: pointer; }
+.sidebar {
+  inset: 0 auto 0 0;
+  width: min(18rem, 85vw);
+  height: 100dvh;
+  max-height: none;
+  margin: 0;
+  padding: 1.25rem 0.75rem;
+  border: 0;
+  border-right: 1px solid var(--line);
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: 10px 0 30px rgba(26, 26, 26, 0.1);
+  transition: translate 0.25s ease, display 0.25s allow-discrete, overlay 0.25s allow-discrete;
 }
-
-.tabbar a {
+.sidebar[open] { translate: 0; }
+@starting-style { .sidebar[open] { translate: -100% 0; } }
+.sidebar:not([open]) { translate: -100% 0; }
+.sidebar::backdrop { background: rgba(250, 250, 248, 0.6); backdrop-filter: blur(4px); }
+@media (prefers-reduced-motion: reduce) { .sidebar { transition: none; } }
+.sidebar nav { display: grid; gap: 0.125rem; }
+.sidebar a {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
-  padding: 0.5rem 0.95rem;
-  border-radius: 999px;
+  gap: 0.6rem;
+  padding: 0.625rem 0.875rem;
+  border-radius: 8px;
   color: var(--ink);
-  font-size: 0.875rem;
+  font-size: 0.9375rem;
   font-weight: 600;
   text-decoration: none;
-  white-space: nowrap;
-  transition: background-color 0.2s, color 0.2s;
 }
-.tabbar a:active { transform: scale(0.97); }
-.tabbar a[aria-current] { background: var(--ink); color: #fff; }
-.tabbar svg { width: 1rem; height: 1rem; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-@media (max-width: 30rem) { .tabbar a { padding-inline: 0.7rem; font-size: 0.8125rem; } .tabbar svg { display: none; } }
-@media (prefers-reduced-transparency: reduce) { .tabbar { background: var(--surface); backdrop-filter: none; } }
+.sidebar a:hover { background: var(--wash); }
+.sidebar a[aria-current] { background: var(--ink); color: #fff; }
+.sidebar svg { width: 1rem; height: 1rem; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 
 /* Page */
 main {
   flex: 1;
-  padding-block: 3.5rem 7rem; /* room for the floating tab bar */
+  padding-block: 3.5rem;
 }
 
 h1 {

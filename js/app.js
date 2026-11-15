@@ -12,6 +12,11 @@ function showTab() {
 }
 
 addEventListener("hashchange", showTab);
+
+// Side menu: the logo opens it; picking a section, Esc or a click outside closes it.
+const menu = document.getElementById("menu");
+document.getElementById("open-menu").addEventListener("click", () => menu.showModal());
+menu.addEventListener("click", (e) => { if (e.target === menu || e.target.closest("a")) menu.close(); });
 showTab();
 
 // Each tab's own code. Imported after the tabs are set up so charts measure visible containers.
