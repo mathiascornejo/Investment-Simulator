@@ -30,7 +30,7 @@ export function attachTickerSearch(input, { multi = false, extra = () => [], onP
   function render() {
     const q = input.value.slice(start()).trim().toUpperCase();
     const mine = remoteFor === q ? remote : []; // name matches from Yahoo, for the text as typed now
-    hits = q ? [...extra().filter(([t, name]) => t.toUpperCase().includes(q) || name.toUpperCase().includes(q)), ...mine]
+    hits = q ? [...[["CASH", "Cash · 0% return"], ...extra()].filter(([t, name]) => t.toUpperCase().includes(q) || name.toUpperCase().includes(q)), ...mine]
       .sort((a, b) => rank(b, q) - rank(a, q) || foreign(a) - foreign(b)).slice(0, 10) : [];
     if (q && /^[A-Z0-9.-]{1,12}$/.test(q) && !hits.some(([t]) => t.toUpperCase() === q)) hits[q.length <= 5 ? "unshift" : "push"]([q, "Use this ticker"]); // short text is likely a ticker: offer it first
     // A finished ticker still shows the list (exact match first) so a near miss can be corrected.

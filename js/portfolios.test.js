@@ -51,3 +51,10 @@ test("a single holding tracks its asset exactly", () => {
   assert.deepEqual(values(out), [100, 200, 200]);
   assert.equal(out.rebalances, 0);
 });
+
+test("cash holding lines up with a ticker and earns nothing", async () => {
+  const { cashSeries } = await import("./data.js");
+  const stock = [{ date: "2024-01-02", adjClose: 10 }, { date: "2024-01-03", adjClose: 20 }];
+  const { points } = portfolioSeries({ holdings: [{ ticker: "SPY", weight: 50 }, { ticker: "CASH", weight: 50 }], rebalance: "none" }, { SPY: stock, CASH: cashSeries() });
+  assert.equal(points.at(-1).adjClose, 150); // 50 doubles, 50 stays
+});

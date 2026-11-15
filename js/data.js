@@ -6,7 +6,18 @@ export const PROXY_URL = "https://investment-simulator-proxy.investmentsimulator
 // Each ticker is downloaded once per visit, however many tabs and portfolios ask for it.
 const loading = new Map(); // ticker -> promise
 
+// "CASH" is not downloaded: it is a flat price (0% return, no interest) on every weekday since 1990,
+// so it lines up with any ticker's dates and every function that takes prices works on it unchanged.
+export function cashSeries(end = new Date()) {
+  const points = [];
+  for (const d = new Date(Date.UTC(1990, 0, 1)); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+    if (d.getUTCDay() % 6) points.push({ date: d.toISOString().slice(0, 10), adjClose: 1 });
+  }
+  return points;
+}
+
 export function fetchPrices(ticker) {
+  if (ticker === "CASH") return Promise.resolve(cashSeries());
   if (!loading.has(ticker)) {
     const promise = request(ticker);
     promise.catch(() => loading.delete(ticker)); // a failed load can be tried again
