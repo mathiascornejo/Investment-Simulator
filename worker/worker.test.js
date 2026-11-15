@@ -82,16 +82,26 @@ test("a ticker Tiingo doesn't know falls back to Yahoo", async () => {
   assert.equal(calls.length, 2);
 });
 
+test("SYMBOL.PS reads raw closes from PSE Edge, oldest first, and search adds PSE rows", async () => {
+  const { get, calls } = setup((u = calls.at(-1).url) => /autoComplete/.test(u) ? new Response('[{"cmpyId":"260","cmpyNm":"BDO Unibank, Inc.","symbol":"BDO"}]')
+    : /stockData/.test(u) ? new Response('<option value="468" selected>BDO</option>')
+    : new Response(JSON.stringify({ chartData: [{ CHART_DATE: "Nov 17, 2025 00:00:00", CLOSE: 126 }, { CHART_DATE: "Nov 18, 2025 00:00:00", CLOSE: 127.5 }] })));
+  assert.deepEqual(await (await get("/prices?ticker=bdo.ps")).json(), [{ date: "2025-11-17", adjClose: 126 }, { date: "2025-11-18", adjClose: 127.5 }]);
+  assert.equal(calls.length, 3);
+  const found = await (await get("/search?q=bdo")).json();
+  assert.deepEqual(found.at(-1), { symbol: "BDO.PS", name: "BDO Unibank, Inc.", exchange: "Philippine Stock Exchange", type: "EQUITY" });
+});
+
 test("search returns symbol, name and exchange for stocks and funds only", async () => {
   const quotes = [{ symbol: "VOD.L", quoteType: "EQUITY", longname: "Vodafone Group Plc", exchDisp: "LSE" },
     { symbol: "^FTSE", quoteType: "INDEX", shortname: "FTSE 100" }];
   const { get, calls } = setup(() => new Response(JSON.stringify({ quotes })));
   const res = await get("/search?q=vodafone");
   assert.deepEqual(await res.json(), [{ symbol: "VOD.L", name: "Vodafone Group Plc", exchange: "LSE", type: "EQUITY" }]);
-  assert.match(calls[0].url, /v1\/finance\/search\?q=vodafone/);
+  assert.ok(calls.some((c) => /v1\/finance\/search\?q=vodafone/.test(c.url)));
   assert.equal((await get("/search?q=v")).status, 200);
-  assert.equal(calls.length, 2); // one character is looked up too
+  assert.equal(calls.length, 4); // one character is looked up too
   assert.deepEqual(await (await get("/search?q=")).json(), []);
-  assert.equal(calls.length, 2); // an empty query is not
+  assert.equal(calls.length, 4); // an empty query is not
   assert.equal((await get("/search?q=vodafone", "https://evil.example")).status, 403);
 });

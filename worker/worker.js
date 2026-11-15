@@ -22,10 +22,37 @@ async function yahoo(ticker) {
   return rows.length ? { body: JSON.stringify(rows) } : { status: 404 };
 }
 
+// shortcut: Philippine Stock Exchange (BDO.PS) from PSE Edge's website endpoints, which Yahoo lacks. Unofficial and
+// unlicensed; closes are RAW (no dividend or split adjustment), so returns understate total return. Upgrade to a paid feed for adjusted data.
+const PSE = "https://edge.pse.com.ph";
+async function pse(symbol) {
+  const hit = (await (await fetch(`${PSE}/autoComplete/searchCompanyNameSymbol.ax?term=${symbol}`)).json()).find((x) => x.symbol === symbol);
+  if (!hit) return { status: 404 };
+  const page = await (await fetch(`${PSE}/companyPage/stockData.do?cmpy_id=${hit.cmpyId}`)).text();
+  const sec = page.match(new RegExp(`<option value="(\\d+)"[^>]*>${symbol}</option>`))?.[1];
+  if (!sec) return { status: 404 };
+  const end = new Date(), mmddyyyy = (d) => `${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}-${d.getUTCFullYear()}`;
+  const res = await fetch(`${PSE}/common/DisclosureCht.ax`, { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ cmpy_id: hit.cmpyId, security_id: sec, startDate: "01-01-1990", endDate: mmddyyyy(end) }) });
+  if (!res.ok) return { status: 502 };
+  const rows = ((await res.json()).chartData || []).filter((r) => r.CLOSE > 0)
+    .map((r) => ({ date: new Date(r.CHART_DATE.replace(" 00:00:00", " UTC")).toISOString().slice(0, 10), adjClose: r.CLOSE }));
+  return rows.length ? { body: JSON.stringify(rows) } : { status: 404 };
+}
+
+// PSE name/symbol matches for the ticker box, as SYMBOL.PS; failures just mean no PSE rows.
+async function searchPse(q) {
+  try {
+    const res = await fetch(`${PSE}/autoComplete/searchCompanyNameSymbol.ax?term=${encodeURIComponent(q)}`);
+    return (await res.json()).slice(0, 3).map((x) => ({ symbol: `${x.symbol}.PS`, name: x.cmpyNm, exchange: "Philippine Stock Exchange", type: "EQUITY" }));
+  } catch { return []; }
+}
+
 // Company-name lookup for the ticker box, from Yahoo's unofficial search (same caveats as yahoo()).
 async function search(q, cors) {
   q = q.trim().slice(0, 40);
   if (!q) return json([], 200, cors);
+  const phRows = searchPse(q);
   const res = await fetch(`https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(q)}&quotesCount=8&newsCount=0`, {
     headers: { "User-Agent": "Mozilla/5.0" },
   });
@@ -33,6 +60,7 @@ async function search(q, cors) {
   const quotes = (await res.json()).quotes || [];
   const rows = quotes.filter((x) => ["EQUITY", "ETF", "MUTUALFUND"].includes(x.quoteType) && x.symbol)
     .map((x) => ({ symbol: x.symbol, name: x.longname || x.shortname || "", exchange: x.exchDisp || "", type: x.quoteType }));
+  rows.push(...await phRows);
   return json(rows, 200, { ...cors, "Cache-Control": "public, max-age=3600" });
 }
 
@@ -66,9 +94,9 @@ export default {
       }
       if (tiingo !== null) body = tiingo;
       else {
-        const y = await yahoo(ticker);
+        const y = ticker.endsWith(".PS") ? await pse(ticker.slice(0, -3)) : await yahoo(ticker);
         if (y.status === 404) return json({ error: `No data for ${ticker}` }, 404, cors);
-        if (y.status) return json({ error: "Yahoo Finance returned an error" }, 502, cors);
+        if (y.status) return json({ error: "The price source returned an error" }, 502, cors);
         body = y.body;
       }
       ctx.waitUntil(env.CACHE.put(ticker, body, { expirationTtl: TTL_SECONDS }));
