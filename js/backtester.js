@@ -24,7 +24,7 @@ const form = $("compare-form");
 
 const status = $("compare-status");
 const input = $("tickers");
-let chips = ["SPY", "BND"]; // what is being compared, in colour order: a ticker or a saved portfolio's name
+let chips = []; // what is being compared, in colour order: a ticker or a saved portfolio's name
 
 // Adds a ticker or saved portfolio to the comparison and redraws.
 export function addToCompare(label) {
@@ -618,4 +618,3 @@ function drawScatter(windows, stats) {
 }
 
 renderChips();
-form.requestSubmit(); // open with the default comparison already drawn
