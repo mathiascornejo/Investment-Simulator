@@ -469,8 +469,9 @@ function drawReturns(windows) {
   charts.returns.setOption(
     {
       ...base,
-      xAxis: { ...base.xAxis, type: "category", data: periods, axisLabel: { ...base.xAxis.axisLabel, formatter: label } },
-      yAxis: { ...base.yAxis, type: "value", axisLabel: { ...base.yAxis.axisLabel, formatter: (v) => pctAxis.format(v) } },
+      // Axis at the bottom edge (not on zero) so negative bars never cover the labels; headroom on the value axis keeps Best/Worst badges inside the chart.
+      xAxis: { ...base.xAxis, type: "category", data: periods, axisLine: { ...base.xAxis.axisLine, onZero: false }, axisLabel: { ...base.xAxis.axisLabel, formatter: label, margin: 10, hideOverlap: true } },
+      yAxis: { ...base.yAxis, type: "value", boundaryGap: [0.12, 0.12], axisLabel: { ...base.yAxis.axisLabel, formatter: (v) => pctAxis.format(v) } },
       series: windows.map((w, i) => ({
         name: w.label,
         type: "bar",
