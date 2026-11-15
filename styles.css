@@ -185,11 +185,14 @@ legend {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
   gap: 1rem 1.25rem;
-  align-items: end; /* inputs line up even when a label wraps onto two lines */
   margin-bottom: 1.5rem;
 }
 
-.field-grid label { display: block; margin-bottom: 0.375rem; }
+/* Each field is label / box / hint on rows shared across the line, so boxes stay level when a label or hint wraps. */
+.field-grid > div { display: grid; grid-row: span 3; grid-template-rows: subgrid; row-gap: 0; }
+.field-grid > div > * { min-width: 0; } /* long names shorten with … instead of pushing the box wider */
+.field-grid label { display: block; align-self: end; margin-bottom: 0.375rem; }
+.field-grid .help:empty { min-height: 0; margin: 0; } /* no blank line on phones; wider rows are still sized by the other hints */
 .field-grid input, .field-grid select { width: 100%; }
 #mc-form .status { margin-bottom: 0; }
 #mc-results { margin-top: 1.5rem; }
@@ -281,7 +284,8 @@ button.quiet {
 }
 
 .facts dt { font-size: 0.875rem; color: var(--muted); }
-.facts dd { margin: 0.125rem 0 0; font-size: 1.625rem; font-weight: 300; letter-spacing: -0.02em; }
+.facts > div { display: flex; flex-direction: column; } /* figures line up even when a label wraps */
+.facts dd { margin: auto 0 0; padding-top: 0.125rem; font-size: 1.625rem; font-weight: 300; letter-spacing: -0.02em; }
 
 select,
 input:not([type="checkbox"]) {

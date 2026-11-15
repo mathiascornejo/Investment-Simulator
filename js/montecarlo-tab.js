@@ -6,7 +6,7 @@ import { dropdown, liveField } from "./fields.js";
 import { periodReturns } from "./stats.js";
 import { loadPortfolios, portfolioSeries } from "./portfolios.js";
 import { simulate, crisisTest, historicalRun, CRISES } from "./montecarlo.js";
-import { pct, money, moneyCompact, longDate, monthLabel, element } from "./format.js";
+import { pct, moneyFit, moneyCompact, longDate, monthLabel, element } from "./format.js";
 import { frame } from "./backtester.js";
 import { gauge, countUp, reducedMotion } from "./visuals.js";
 import { term } from "./glossary.js";
@@ -79,8 +79,9 @@ form.addEventListener("submit", async (event) => {
   const growth = Number($("mc-growth").value) / 100;
   const years = Number($("mc-years").value);
   const runs = Number($("mc-runs").value);
-  if (!(startValue > 0) || !(annualWithdrawal >= 0) || !(growth >= 0 && growth <= 0.2) || !(Number.isInteger(years) && years >= 1 && years <= 60)) {
-    return say("Check the amounts: a starting amount above 0, a withdrawal of 0 or more, a rise of 0 to 20%, and 1 to 60 whole years.", true);
+  const MAX = 1e12; // same cap as the inputs' max: bigger amounts add nothing and could overflow over 60 years
+  if (!(startValue > 0 && startValue <= MAX) || !(annualWithdrawal >= 0 && annualWithdrawal <= MAX) || !(growth >= 0 && growth <= 0.2) || !(Number.isInteger(years) && years >= 1 && years <= 60)) {
+    return say("Check the amounts: a starting amount above 0 and a withdrawal of 0 or more (both up to $1 trillion), a rise of 0 to 20%, and 1 to 60 whole years.", true);
   }
 
   const name = portfolio ? portfolio.name : ticker;
@@ -136,7 +137,7 @@ form.addEventListener("submit", async (event) => {
   $("mc-tiles").replaceChildren(
     ...tiles.map(([label, value]) => {
       const dd = element("dd");
-      countUp(dd, value, money);
+      countUp(dd, value, moneyFit);
       return element("div", element("dt", label.includes("percentile") ? term(label, "percentile") : label), dd);
     }),
   );
@@ -169,7 +170,7 @@ function drawCone(bands, paths) {
     addEventListener("resize", resize);
     addEventListener("hashchange", resize);
   }
-  const base = frame(String, money);
+  const base = frame(String, moneyFit);
   const gap = (upper, lower) => upper.map((v, i) => v - lower[i]);
   // Stacked areas draw the bands: an invisible base at the 10th percentile, then the gaps above it.
   // Sample runs draw themselves first, left to right; the bands fade in once they are done.
@@ -218,7 +219,7 @@ function drawCone(bands, paths) {
           const year = items[0].dataIndex;
           return (
             `<strong>${year === 0 ? "Start" : `After ${year} ${year === 1 ? "year" : "years"}`}</strong>` +
-            rows.map(([label, key]) => `<div style="display:flex;justify-content:space-between;gap:1.5rem"><span>${label}</span><span>${money.format(bands[key][year])}</span></div>`).join("")
+            rows.map(([label, key]) => `<div style="display:flex;justify-content:space-between;gap:1.5rem"><span>${label}</span><span>${moneyFit.format(bands[key][year])}</span></div>`).join("")
           );
         },
       },
@@ -262,7 +263,7 @@ function drawCrises(points, benchmark, { startValue, annualWithdrawal, growth })
       cell(pct.format(test.lowest), `on ${longDate(test.lowDate)}`),
       spy ? cell(pct.format(spy.lowest), `on ${longDate(spy.lowDate)}`) : cell("–"),
       test.recovered ? cell(longDate(test.recovered), `${yearsToRecover} years after the start`) : cell("Not yet", `as of ${longDate(last)}`),
-      run.ranOutIn ? cell(`Ran out in ${monthLabel(run.ranOutIn)}`) : cell(`${money.format(run.final)} left`, `on ${longDate(last)}`),
+      run.ranOutIn ? cell(`Ran out in ${monthLabel(run.ranOutIn)}`) : cell(`${moneyFit.format(run.final)} left`, `on ${longDate(last)}`),
     );
   });
   $("mc-crises").replaceChildren(

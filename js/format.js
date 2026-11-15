@@ -3,7 +3,12 @@
 export const pct = new Intl.NumberFormat(undefined, { style: "percent", minimumFractionDigits: 2, maximumFractionDigits: 2, signDisplay: "negative" });
 export const num = new Intl.NumberFormat(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2, signDisplay: "negative" });
 export const money = new Intl.NumberFormat(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 });
-export const moneyCompact = new Intl.NumberFormat(undefined, { style: "currency", currency: "USD", notation: "compact", maximumFractionDigits: 1 }); // $1.2M, for axes and tiles
+const compact = new Intl.NumberFormat(undefined, { style: "currency", currency: "USD", notation: "compact", maximumFractionDigits: 1 });
+const scientific = new Intl.NumberFormat(undefined, { style: "currency", currency: "USD", notation: "scientific", maximumFractionDigits: 1 });
+// $1.2M or $3.4T, for axes and tiles; past $999T compact runs long ("$1,000,000T"), so it switches to $1E18.
+export const moneyCompact = { format: (v) => (Math.abs(v) < 1e15 ? compact : scientific).format(v) };
+// Whole dollars while they stay short enough for a tile or table cell, then compact.
+export const moneyFit = { format: (v) => (Math.abs(v) < 1e9 ? money : moneyCompact).format(v) };
 
 export const longDate = (d) =>
   new Date(d).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });

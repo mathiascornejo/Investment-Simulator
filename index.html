@@ -208,14 +208,15 @@
           <div id="mc-ticker-field">
             <label for="mc-ticker">Ticker</label>
             <input id="mc-ticker" class="ticker" value="SPY" autocomplete="off" spellcheck="false">
+            <p class="help">A symbol or company name</p>
           </div>
           <div>
             <label for="mc-start">Starting amount ($)</label>
-            <input type="number" id="mc-start" value="1000000" min="1" step="any" required>
+            <input type="number" id="mc-start" value="1000000" min="1" max="1000000000000" step="any" required>
           </div>
           <div>
             <label for="mc-withdrawal">Withdrawal per year ($)</label>
-            <input type="number" id="mc-withdrawal" value="40000" min="0" step="any" required>
+            <input type="number" id="mc-withdrawal" value="40000" min="0" max="1000000000000" step="any" required>
           </div>
           <div>
             <label for="mc-growth">Withdrawals rise each year by (%)</label>
