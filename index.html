@@ -56,24 +56,23 @@
       <div id="bt-skeleton" class="skeleton" aria-hidden="true" hidden><i class="sk-row"></i><i class="sk-chart"></i><i class="sk-chart short"></i></div>
 
       <div id="results" class="panel" hidden>
-        <div class="toolbar">
-          <div class="segmented presets" role="group" aria-label="Period">
-            <button type="button" data-months="1">1M</button>
-            <button type="button" data-months="12">1Y</button>
-            <button type="button" data-months="36">3Y</button>
-            <button type="button" data-months="60">5Y</button>
-            <button type="button" data-months="120">10Y</button>
-            <button type="button" data-months="max">Max</button>
-          </div>
-          <label>From <input type="date" id="from"></label>
-          <label>To <input type="date" id="to"></label>
-        </div>
-        <ul id="legend" class="legend" aria-label="Assets"></ul>
 
         <div class="block">
           <div class="block-head">
             <h2>Growth of $10,000</h2>
             <label class="check"><input type="checkbox" id="log-scale"> Log scale</label>
+          </div>
+          <div class="toolbar">
+            <div class="segmented presets" role="group" aria-label="Period">
+              <button type="button" data-months="1">1M</button>
+              <button type="button" data-months="12">1Y</button>
+              <button type="button" data-months="36">3Y</button>
+              <button type="button" data-months="60">5Y</button>
+              <button type="button" data-months="120">10Y</button>
+              <button type="button" data-months="max">Max</button>
+            </div>
+            <label>From <input type="date" id="from"></label>
+            <label>To <input type="date" id="to"></label>
           </div>
           <div id="growth-chart" class="chart chart-tall"></div>
           <div id="summary" class="summary"></div>

@@ -263,7 +263,6 @@ function draw() {
   }
 
   state.windows = windows;
-  $("legend").replaceChildren(...windows.map((w) => element("li", swatch(w.color), w.label)));
   renderChips(windows);
   const stats = windows.map((w) => summarize(w.points, state.benchmark, w.nextDate, START_VALUE));
   drawTable(windows, stats);
