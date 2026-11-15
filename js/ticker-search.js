@@ -24,14 +24,15 @@ export function attachTickerSearch(input, { multi = false, extra = () => [], onP
   const start = () => (multi ? input.value.search(/[^,\s]*$/) : 0); // where the entry being typed begins
   const typed = () => input.value.slice(start()).trim().toUpperCase();
   const rank = ([t], q) => (t.toUpperCase() === q ? 2 : t.toUpperCase().startsWith(q) ? 1 : 0); // exact, then prefix
+  const foreign = ([t]) => t.includes(".") ? 1 : 0; // then the common (undotted, home-market) listing before foreign ones; ties keep Yahoo's relevance order
   const close = () => { list.hidden = true; input.setAttribute("aria-expanded", "false"); };
 
   function render() {
     const q = input.value.slice(start()).trim().toUpperCase();
     const mine = remoteFor === q ? remote : []; // name matches from Yahoo, for the text as typed now
     hits = q ? [...extra().filter(([t, name]) => t.toUpperCase().includes(q) || name.toUpperCase().includes(q)), ...mine]
-      .sort((a, b) => rank(b, q) - rank(a, q)).slice(0, 10) : [];
-    if (q && /^[A-Z0-9.-]{1,12}$/.test(q) && !hits.some(([t]) => t.toUpperCase() === q)) hits.push([q, "Use this ticker"]);
+      .sort((a, b) => rank(b, q) - rank(a, q) || foreign(a) - foreign(b)).slice(0, 10) : [];
+    if (q && /^[A-Z0-9.-]{1,12}$/.test(q) && !hits.some(([t]) => t.toUpperCase() === q)) hits[q.length <= 5 ? "unshift" : "push"]([q, "Use this ticker"]); // short text is likely a ticker: offer it first
     // A finished ticker still shows the list (exact match first) so a near miss can be corrected.
     if (!hits.length) return close();
     at = Math.min(at, hits.length - 1);

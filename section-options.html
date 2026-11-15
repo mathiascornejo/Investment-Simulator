@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Section separation: 6 options</title>
+<style>
+  :root { --paper:#fafaf8; --surface:#fff; --ink:#1a1a1a; --muted:#66665f; --line:#e6e6e1; --wash:#f0f0ec; --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 2rem 1.5rem 4rem; background: var(--paper); color: var(--ink); font: 1rem/1.5 var(--sans); }
+  h1 { margin: 0 0 .5rem; font: 300 2.25rem/1.1 var(--sans); letter-spacing: -.03em; }
+  .intro { max-width: 40rem; margin: 0 0 2rem; color: var(--muted); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr)); gap: 1.5rem; max-width: 76rem; }
+  .opt { border: 1px solid var(--line); border-radius: 12px; background: var(--paper); overflow: hidden; }
+  .opt > header { display: flex; gap: .6rem; align-items: baseline; padding: .75rem 1rem; background: var(--ink); color: #fff; }
+  .opt > header b { font-size: 1.125rem; } .opt > header span { font-size: .875rem; opacity: .75; }
+  .stage { padding: 1.25rem; }
+  /* shared fake content */
+  .chart { height: 5rem; border-radius: 6px; background: linear-gradient(transparent 70%, #2a78d633) , repeating-linear-gradient(0deg, var(--line) 0 1px, transparent 1px 1.25rem); position: relative; }
+  .chart::after { content:""; position:absolute; inset:.6rem 0 .8rem; background: linear-gradient(170deg, transparent 45%, #2a78d6 46% 48%, transparent 49%); }
+  h2 { margin: 0 0 .5rem; font-size: 1.0625rem; font-weight: 600; }
+  p.t { margin: .5rem 0 0; font-size: .875rem; color: var(--muted); }
+  .stat { display: flex; justify-content: space-between; padding: .2rem 0; font-size: .9375rem; }
+  .stat span:first-child { color: var(--muted); }
+
+  /* 1. Tinted bands */
+  .o1 .sec { margin: 0 -1.25rem; padding: 1.5rem 1.25rem; }
+  .o1 .sec:nth-child(even) { background: var(--wash); }
+  /* 2. Cards */
+  .o2 .stage { background: var(--wash); display: grid; gap: 1rem; }
+  .o2 .sec { padding: 1.25rem; border-radius: 14px; background: var(--surface); box-shadow: 0 1px 2px rgba(26,26,26,.06), 0 6px 18px rgba(26,26,26,.06); }
+  /* 3. Numbered, heavy rule */
+  .o3 .sec { padding: 1.25rem 0 1.5rem; border-top: 3px solid var(--ink); counter-increment: n; }
+  .o3 .sec + .sec { margin-top: 1.25rem; }
+  .o3 h2::before { content: "0" counter(n); display: block; margin-bottom: .25rem; font-size: .75rem; letter-spacing: .12em; color: var(--muted); }
+  .o3 .stage { counter-reset: n; }
+  /* 4. Side rail: label column on the left */
+  .o4 .sec { display: grid; grid-template-columns: 5.5rem 1fr; gap: 1rem; padding: 1.25rem 0; border-top: 1px solid var(--line); }
+  .o4 .sec:first-child { border-top: 0; }
+  .o4 h2 { font-size: .8125rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); padding-top: .15rem; position: relative; }
+  .o4 h2::before { content:""; position:absolute; left:-1.25rem; top:.1rem; bottom:-.1rem; width: 3px; border-radius: 2px; background: #2a78d6; }
+  /* 5. Generous gap + ornament */
+  .o5 .sec { padding: .5rem 0; }
+  .o5 .sec + .sec { margin-top: 2.5rem; padding-top: 0; }
+  .o5 .sec + .sec::before { content: "• • •"; display: block; margin-bottom: 2rem; text-align: center; letter-spacing: .5em; color: #b8b8b1; }
+  /* 6. Title strip, outlined body */
+  .o6 .sec { border: 1px solid var(--line); border-radius: 10px; background: var(--surface); overflow: hidden; }
+  .o6 .sec + .sec { margin-top: 1.25rem; }
+  .o6 h2 { margin: 0; padding: .6rem 1rem; background: var(--wash); border-bottom: 1px solid var(--line); }
+  .o6 .body { padding: 1rem; }
+  .o6 .sec .body p.t:first-child { margin-top: 0; }
+</style>
+</head>
+<body>
+  <h1>Making sections obvious: 6 options</h1>
+  <p class="intro">Each mock shows three sections from the Backtester (chart, head-to-head, statistics) in the same Quiet Paper colours. Tell me the number you want and I will apply it to every tab.</p>
+  <div class="grid">
+
+    <article class="opt o1"><header><b>1</b><span>Tinted bands</span></header><div class="stage">
+      <div class="sec"><h2>Growth of $10,000</h2><div class="chart"></div></div>
+      <div class="sec"><h2>Head to head</h2><div class="stat"><span>Return</span><b>13.4%</b></div><div class="stat"><span>Volatility</span><b>4.1%</b></div></div>
+      <div class="sec"><h2>Statistics</h2><div class="stat"><span>Sharpe</span><b>1.00</b></div><div class="stat"><span>Beta</span><b>0.98</b></div></div>
+    </div></article>
+
+    <article class="opt o2"><header><b>2</b><span>Floating cards</span></header><div class="stage">
+      <div class="sec"><h2>Growth of $10,000</h2><div class="chart"></div></div>
+      <div class="sec"><h2>Head to head</h2><div class="stat"><span>Return</span><b>13.4%</b></div><div class="stat"><span>Volatility</span><b>4.1%</b></div></div>
+      <div class="sec"><h2>Statistics</h2><div class="stat"><span>Sharpe</span><b>1.00</b></div><div class="stat"><span>Beta</span><b>0.98</b></div></div>
+    </div></article>
+
+    <article class="opt o3"><header><b>3</b><span>Numbered, heavy ink rule</span></header><div class="stage">
+      <div class="sec"><h2>Growth of $10,000</h2><div class="chart"></div></div>
+      <div class="sec"><h2>Head to head</h2><div class="stat"><span>Return</span><b>13.4%</b></div><div class="stat"><span>Volatility</span><b>4.1%</b></div></div>
+      <div class="sec"><h2>Statistics</h2><div class="stat"><span>Sharpe</span><b>1.00</b></div><div class="stat"><span>Beta</span><b>0.98</b></div></div>
+    </div></article>
+
+    <article class="opt o4"><header><b>4</b><span>Label rail with blue marker</span></header><div class="stage">
+      <div class="sec"><h2>Growth</h2><div><div class="chart"></div></div></div>
+      <div class="sec"><h2>Head to head</h2><div><div class="stat"><span>Return</span><b>13.4%</b></div><div class="stat"><span>Volatility</span><b>4.1%</b></div></div></div>
+      <div class="sec"><h2>Statistics</h2><div><div class="stat"><span>Sharpe</span><b>1.00</b></div><div class="stat"><span>Beta</span><b>0.98</b></div></div></div>
+    </div></article>
+
+    <article class="opt o5"><header><b>5</b><span>Big gaps and a dotted break</span></header><div class="stage">
+      <div class="sec"><h2>Growth of $10,000</h2><div class="chart"></div></div>
+      <div class="sec"><h2>Head to head</h2><div class="stat"><span>Return</span><b>13.4%</b></div><div class="stat"><span>Volatility</span><b>4.1%</b></div></div>
+      <div class="sec"><h2>Statistics</h2><div class="stat"><span>Sharpe</span><b>1.00</b></div><div class="stat"><span>Beta</span><b>0.98</b></div></div>
+    </div></article>
+
+    <article class="opt o6"><header><b>6</b><span>Outlined panels with title strip</span></header><div class="stage">
+      <div class="sec"><h2>Growth of $10,000</h2><div class="body"><div class="chart"></div></div></div>
+      <div class="sec"><h2>Head to head</h2><div class="body"><div class="stat"><span>Return</span><b>13.4%</b></div><div class="stat"><span>Volatility</span><b>4.1%</b></div></div></div>
+      <div class="sec"><h2>Statistics</h2><div class="body"><div class="stat"><span>Sharpe</span><b>1.00</b></div><div class="stat"><span>Beta</span><b>0.98</b></div></div></div>
+    </div></article>
+
+  </div>
+</body>
+</html>

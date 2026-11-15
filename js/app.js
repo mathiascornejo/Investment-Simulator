@@ -13,10 +13,20 @@ function showTab() {
 
 addEventListener("hashchange", showTab);
 
-// Side menu: the logo opens it; picking a section, Esc or a click outside closes it.
+// Side menu: the top-left button slides it out and pushes the page right; Esc closes it. On a narrow
+// screen there is no room to push, so picking a section closes it.
 const menu = document.getElementById("menu");
-document.getElementById("open-menu").addEventListener("click", () => menu.showModal());
-menu.addEventListener("click", (e) => { if (e.target === menu || e.target.closest("a")) menu.close(); });
+const button = document.getElementById("open-menu");
+function setMenu(open) {
+  document.body.classList.toggle("menu-open", open);
+  menu.inert = !open;
+  button.setAttribute("aria-expanded", open);
+}
+button.addEventListener("click", () => setMenu(!document.body.classList.contains("menu-open")));
+menu.addEventListener("click", (e) => { if (e.target.closest("a") && matchMedia("(max-width: 60rem)").matches) setMenu(false); });
+addEventListener("keydown", (e) => { if (e.key === "Escape" && document.body.classList.contains("menu-open")) { setMenu(false); button.focus(); } });
+// The page width changes as it slides, so charts must re-measure once it stops.
+document.body.addEventListener("transitionend", (e) => { if (e.target === document.body) dispatchEvent(new Event("resize")); });
 showTab();
 
 // Each tab's own code. Imported after the tabs are set up so charts measure visible containers.

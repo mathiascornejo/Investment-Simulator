@@ -198,7 +198,7 @@ form.addEventListener("submit", async (event) => {
     say("These assets have no dates in common, so they can't be compared.", true);
     return;
   }
-  applyPreset("1");
+  applyPreset("12"); // 1 year is the default period
 
   say(problems.join(" "), problems.length > 0);
   $("results").hidden = false;
@@ -320,7 +320,7 @@ export function frame(formatHeader, format, pointer = "line") {
     grid: { left: 4, right: 16, top: 12, bottom: 4 },
     tooltip: {
       trigger: "axis",
-      axisPointer: { type: pointer, lineStyle: { color: MUTED, type: "solid" }, shadowStyle: { color: "rgba(21, 35, 59, 0.06)" } },
+      axisPointer: { type: pointer, snap: true, lineStyle: { color: MUTED, type: "dashed" }, shadowStyle: { color: "rgba(21, 35, 59, 0.06)" } },
       backgroundColor: "#fff",
       borderColor: AXIS,
       textStyle: { color: INK, fontSize: 13 },
@@ -342,9 +342,10 @@ const line = (w, data, extra = {}) => ({
   name: w.label,
   type: "line",
   showSymbol: false, // no downsampling: it drops different dates per line, so the tooltip would miss assets
+  symbol: "circle", symbolSize: 6, // the circle shown on each line where the crosshair sits (TradingView style)
   lineStyle: { width: 2, color: w.color },
-  itemStyle: { color: w.color },
-  emphasis: { disabled: true },
+  itemStyle: { color: w.color, borderColor: "#fff", borderWidth: 2 },
+  emphasis: { focus: "none", scale: 1.6 }, // axis hover highlights the circle on each line
   data,
   ...extra,
 });
