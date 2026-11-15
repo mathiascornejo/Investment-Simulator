@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Toolbar labels: 5 options</title>
+<style>
+  :root { --paper:#fafaf8; --ink:#1a1a1a; --muted:#66665f; --line:#e6e6e1; --wash:#f0f0ec; --field:#8f8f89; --blue:#2a78d6; --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 2rem 1.5rem 4rem; background: var(--paper); color: var(--ink); font: 1rem/1.5 var(--sans); }
+  h1 { margin: 0 0 .5rem; font: 300 2.25rem/1.1 var(--sans); letter-spacing: -.03em; }
+  .intro { max-width: 40rem; margin: 0 0 2rem; color: var(--muted); }
+  .opt { max-width: 56rem; margin-bottom: 1.5rem; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  .opt > header { display: flex; gap: .6rem; align-items: baseline; padding: .6rem 1rem; background: var(--ink); color: #fff; }
+  .opt > header span { font-size: .875rem; opacity: .75; }
+  .stage { padding: 1.25rem; }
+  .seg { display: inline-flex; padding: 3px; border-radius: 10px; background: var(--wash); }
+  .seg button { font: inherit; font-size: .875rem; padding: .3rem .7rem; border: 0; border-radius: 8px; background: none; color: var(--muted); }
+  .seg button.on { background: #fff; color: var(--ink); box-shadow: 0 1px 2px #0002; }
+  input[type=text] { font: inherit; font-size: .875rem; padding: .3rem .5rem; width: 7.5rem; border: 1px solid var(--field); border-radius: 8px; background: #fff; }
+  .dates { display: inline-flex; gap: .5rem; align-items: center; }
+  .cap { font-size: .6875rem; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  .help { font-size: .75rem; color: var(--muted); margin: 0; }
+  .row { display: flex; flex-wrap: wrap; gap: 1rem 2rem; align-items: flex-end; }
+  .col { display: flex; flex-direction: column; gap: .35rem; }
+  /* 2 */ .ruled { display: flex; flex-wrap: wrap; }
+  .ruled .col { padding: 0 1.5rem; border-left: 1px solid var(--line); }
+  .ruled .col:first-child { padding-left: 0; border-left: 0; }
+  /* 3 */ .notch { position: relative; padding: .9rem .75rem .6rem; border: 1px solid var(--line); border-radius: 10px; }
+  .notch > .cap { position: absolute; top: -.6rem; left: .6rem; padding: 0 .35rem; background: var(--paper); }
+  /* 4 */ .num { display: inline-grid; place-items: center; width: 1.25rem; height: 1.25rem; margin-right: .4rem; border-radius: 50%; background: var(--ink); color: #fff; font-size: .6875rem; letter-spacing: 0; }
+  /* 5 */ .bar { width: 1.5rem; height: 2px; background: var(--blue); margin-bottom: .1rem; }
+</style>
+</head>
+<body>
+<h1>Toolbar labels: 5 options</h1>
+<p class="intro">Each option labels the three controls above the growth chart: the time horizon (1M–Max), the date range (From / To), and the step (time between chart points). Reference only, not linked from the site.</p>
+
+<!-- 1 -->
+<section class="opt"><header><b>1 · Small caps above</b><span>Quiet, matches the section-rail labels</span></header><div class="stage"><div class="row">
+  <div class="col"><span class="cap">Time horizon</span><div class="seg"><button>1M</button><button class="on">1Y</button><button>3Y</button><button>5Y</button><button>10Y</button><button>Max</button></div></div>
+  <div class="col"><span class="cap">Date range</span><div class="dates"><input type="text" value="11/13/2025"> to <input type="text" value="11/13/2026"></div></div>
+  <div class="col"><span class="cap">Step</span><div class="seg"><button class="on">1 day</button><button>1 week</button><button>1 month</button></div></div>
+</div></div></section>
+
+<!-- 2 -->
+<section class="opt"><header><b>2 · Ruled columns</b><span>Hairlines split the toolbar into three clear zones</span></header><div class="stage"><div class="ruled">
+  <div class="col"><span class="cap">Time horizon</span><div class="seg"><button>1M</button><button class="on">1Y</button><button>3Y</button><button>5Y</button><button>10Y</button><button>Max</button></div></div>
+  <div class="col"><span class="cap">Date range</span><div class="dates"><input type="text" value="11/13/2025"> to <input type="text" value="11/13/2026"></div></div>
+  <div class="col"><span class="cap">Step</span><div class="seg"><button class="on">1 day</button><button>1 week</button><button>1 month</button></div></div>
+</div></div></section>
+
+<!-- 3 -->
+<section class="opt"><header><b>3 · Label in the border</b><span>Each control sits in a hairline frame, like a form group</span></header><div class="stage"><div class="row" style="align-items:stretch;padding-top:.4rem">
+  <div class="notch"><span class="cap">Time horizon</span><div class="seg"><button>1M</button><button class="on">1Y</button><button>3Y</button><button>5Y</button><button>10Y</button><button>Max</button></div></div>
+  <div class="notch"><span class="cap">Date range</span><div class="dates"><input type="text" value="11/13/2025"> to <input type="text" value="11/13/2026"></div></div>
+  <div class="notch"><span class="cap">Step</span><div class="seg"><button class="on">1 day</button><button>1 week</button><button>1 month</button></div></div>
+</div></div></section>
+
+<!-- 4 -->
+<section class="opt"><header><b>4 · Numbered</b><span>Reads as a sequence: pick a horizon, fine-tune the dates, choose the step</span></header><div class="stage"><div class="row">
+  <div class="col"><span class="cap"><i class="num">1</i>Time horizon</span><div class="seg"><button>1M</button><button class="on">1Y</button><button>3Y</button><button>5Y</button><button>10Y</button><button>Max</button></div></div>
+  <div class="col"><span class="cap"><i class="num">2</i>Date range</span><div class="dates"><input type="text" value="11/13/2025"> to <input type="text" value="11/13/2026"></div></div>
+  <div class="col"><span class="cap"><i class="num">3</i>Step</span><div class="seg"><button class="on">1 day</button><button>1 week</button><button>1 month</button></div></div>
+</div></div></section>
+
+<!-- 5 -->
+<section class="opt"><header><b>5 · Label plus one-line help</b><span>Plain-English explanation under each label, most self-explanatory</span></header><div class="stage"><div class="row">
+  <div class="col"><div class="bar"></div><span class="cap">Time horizon</span><p class="help">How far back the charts go</p><div class="seg"><button>1M</button><button class="on">1Y</button><button>3Y</button><button>5Y</button><button>10Y</button><button>Max</button></div></div>
+  <div class="col"><div class="bar"></div><span class="cap">Date range</span><p class="help">Or type exact start and end dates</p><div class="dates"><input type="text" value="11/13/2025"> to <input type="text" value="11/13/2026"></div></div>
+  <div class="col"><div class="bar"></div><span class="cap">Step</span><p class="help">Time between points on the charts</p><div class="seg"><button class="on">1 day</button><button>1 week</button><button>1 month</button></div></div>
+</div></div></section>
+</body>
+</html>
