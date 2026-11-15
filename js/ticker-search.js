@@ -75,10 +75,10 @@ export function attachTickerSearch(input, { multi = false, extra = () => [], onP
       remoteFor = q;
     }).catch(() => {}).then(done); // offline or blocked: fall back to the local list
   }
-  // From 2 characters the list waits for Yahoo (kept as it was meanwhile) so it never shows a local guess first.
+  // From 1 character the list waits for Yahoo (kept as it was meanwhile) so it never shows a local guess first.
   input.addEventListener("input", () => {
     at = 0; clearTimeout(timer);
-    if (typed().length < 2) return render();
+    if (!typed()) return render();
     timer = setTimeout(lookup, 150);
   });
   input.addEventListener("blur", close);

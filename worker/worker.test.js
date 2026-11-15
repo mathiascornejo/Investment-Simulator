@@ -90,6 +90,8 @@ test("search returns symbol, name and exchange for stocks and funds only", async
   assert.deepEqual(await res.json(), [{ symbol: "VOD.L", name: "Vodafone Group Plc", exchange: "LSE", type: "EQUITY" }]);
   assert.match(calls[0].url, /v1\/finance\/search\?q=vodafone/);
   assert.equal((await get("/search?q=v")).status, 200);
-  assert.equal(calls.length, 1); // one character is not looked up
+  assert.equal(calls.length, 2); // one character is looked up too
+  assert.deepEqual(await (await get("/search?q=")).json(), []);
+  assert.equal(calls.length, 2); // an empty query is not
   assert.equal((await get("/search?q=vodafone", "https://evil.example")).status, 403);
 });

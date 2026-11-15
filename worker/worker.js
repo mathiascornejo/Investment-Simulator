@@ -25,7 +25,7 @@ async function yahoo(ticker) {
 // Company-name lookup for the ticker box, from Yahoo's unofficial search (same caveats as yahoo()).
 async function search(q, cors) {
   q = q.trim().slice(0, 40);
-  if (q.length < 2) return json([], 200, cors);
+  if (!q) return json([], 200, cors);
   const res = await fetch(`https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(q)}&quotesCount=8&newsCount=0`, {
     headers: { "User-Agent": "Mozilla/5.0" },
   });
