@@ -49,6 +49,7 @@ function removeChip(label) {
 
 // One chip per compared line: colour, kind of asset, the change over the chosen period.
 function renderChips(windows = []) {
+  input.placeholder = chips.length ? "" : "Add a ticker or portfolio"; // the hint only shows while the box is empty
   $("chips").replaceChildren(
     ...chips.map((label, i) => {
       const w = windows.find((x) => x.label === label);
