@@ -44,7 +44,8 @@ function addHolding(ticker = "", weight = "") {
   const row = Object.assign(element("div", tickerInput, weightInput, remove), { className: "holding" });
   $("holdings").append(row);
   attachTickerSearch(tickerInput); // after append: it wraps the input in place
-  liveField(tickerInput, { compact: true });
+  tickerInput.placeholder = "Add a ticker";
+  tickerInput.addEventListener("input", () => { tickerInput.value = tickerInput.value.replace(/[^A-Za-z0-9.\-]/g, ""); }); // same as the Backtester box
   liveField(weightInput, { compact: true });
 }
 

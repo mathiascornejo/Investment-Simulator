@@ -23,7 +23,8 @@ const SAMPLES = 30;
 
 const $ = (id) => document.getElementById(id);
 attachTickerSearch($("mc-ticker"));
-liveField($("mc-ticker"), { clear: true });
+$("mc-ticker").placeholder = "Add a ticker";
+$("mc-ticker").addEventListener("input", (e) => { e.target.value = e.target.value.replace(/[^A-Za-z0-9.\-]/g, ""); }); // same as the Backtester box
 for (const id of ["mc-start", "mc-withdrawal", "mc-growth", "mc-years"]) liveField($(id));
 const form = $("mc-form");
 const status = $("mc-status");
