@@ -35,6 +35,7 @@ A web app that simulates portfolios and single assets against each other. Educat
 | Non-US prices | DECIDED (2026-11-15) — Yahoo Finance's unofficial chart endpoint, called only from the Worker: used for tickers with a dot (`VOD.L`, `7203.T`) and as the fallback when Tiingo 404s. Dividend-adjusted, global, free, but unlicensed (its terms bar redistribution) and may break or block. Prices are in the listing currency (London in pence); the app does not convert currencies. Needs `npx wrangler deploy` to go live. |
 | Form controls | DECIDED (2026-11-15) — "live feedback" (option 10 of 10 explored): fields are checked as you type (tick draws in, or the box shakes red with a reason), dropdowns are custom menus with a check mark and a one-line explanation of the chosen option. Not applied to the Backtester date boxes, chip box or ⌘K palette. |
 | Section separation | DECIDED (2026-11-15) — option 4: each `.block` is a two-column grid; the title sits in a 9rem left rail in small caps with a blue bar, content on the right; stacks under 40rem. |
+| Toolbar labels | DECIDED (2026-11-15) — option 3 of `label-options.html`: Time horizon, Date range and Step each sit in a hairline frame (`.notch`) with the label on the border. |
 | Known risk | Tiingo's free and $30 plans are "internal use only"; a public site showing its prices is outside that licence. Revisit before sharing the URL. |
 
 ## Project map

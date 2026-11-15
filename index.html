@@ -63,20 +63,26 @@
             <label class="check"><input type="checkbox" id="log-scale"> Log scale</label>
           </div>
           <div class="toolbar">
-            <div class="segmented presets" role="group" aria-label="Period">
-              <button type="button" data-months="1">1M</button>
-              <button type="button" data-months="12">1Y</button>
-              <button type="button" data-months="36">3Y</button>
-              <button type="button" data-months="60">5Y</button>
-              <button type="button" data-months="120">10Y</button>
-              <button type="button" data-months="max">Max</button>
+            <div class="notch" data-label="Time horizon">
+              <div class="segmented presets" role="group" aria-label="Time horizon">
+                <button type="button" data-months="1">1M</button>
+                <button type="button" data-months="12">1Y</button>
+                <button type="button" data-months="36">3Y</button>
+                <button type="button" data-months="60">5Y</button>
+                <button type="button" data-months="120">10Y</button>
+                <button type="button" data-months="max">Max</button>
+              </div>
             </div>
-            <label>From <input type="date" id="from"></label>
-            <label>To <input type="date" id="to"></label>
-            <div id="step" class="segmented" role="group" aria-label="Chart increment" title="Time between points on the charts">
-              <button type="button" data-step="day">1 day</button>
-              <button type="button" data-step="week">1 week</button>
-              <button type="button" data-step="month">1 month</button>
+            <div class="notch" data-label="Date range">
+              <label>From <input type="date" id="from"></label>
+              <label>To <input type="date" id="to"></label>
+            </div>
+            <div class="notch" data-label="Step">
+              <div id="step" class="segmented" role="group" aria-label="Step: time between chart points" title="Time between points on the charts">
+                <button type="button" data-step="day">1 day</button>
+                <button type="button" data-step="week">1 week</button>
+                <button type="button" data-step="month">1 month</button>
+              </div>
             </div>
           </div>
           <p class="hint">Scroll over a chart to zoom, drag to move, drag the dates strip to stretch, double-click to reset.</p>
