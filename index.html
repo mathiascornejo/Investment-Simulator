@@ -73,7 +73,13 @@
             </div>
             <label>From <input type="date" id="from"></label>
             <label>To <input type="date" id="to"></label>
+            <div id="step" class="segmented" role="group" aria-label="Chart increment" title="Time between points on the charts">
+              <button type="button" data-step="day">1 day</button>
+              <button type="button" data-step="week">1 week</button>
+              <button type="button" data-step="month">1 month</button>
+            </div>
           </div>
+          <p class="hint">Scroll over a chart to zoom, drag to move along time.</p>
           <div id="growth-chart" class="chart chart-tall"></div>
           <div id="summary" class="summary"></div>
         </div>

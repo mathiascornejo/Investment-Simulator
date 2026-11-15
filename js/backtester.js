@@ -77,6 +77,7 @@ const state = {
   end: "",
   preset: "12",
   log: false,
+  step: "day", // time between chart points: day | week | month (statistics always use every day)
   keyLength: 4, // 4 = returns by year, 7 = by month
   heat: 0, // which line the monthly heatmap shows
   windows: [],
@@ -241,6 +242,46 @@ $("heat-pick").addEventListener("click", (event) => {
   drawHeatmap(state.windows);
 });
 
+$("step").addEventListener("click", (event) => {
+  if (!event.target.dataset.step) return;
+  state.step = event.target.dataset.step;
+  draw();
+});
+
+// Zoom (wheel, around the pointer) and pan (drag) on the growth and drawdown charts, like TradingView.
+// Both just move state.start / state.end and redraw, so the dates, table and every chart follow.
+const DAY = 86400000;
+const iso = (ms) => new Date(ms).toISOString().slice(0, 10);
+function setSpan(start, end) {
+  const span = Math.min(end - start, Date.parse(state.max) - Date.parse(state.min));
+  const lo = Math.min(Math.max(start, Date.parse(state.min)), Date.parse(state.max) - span);
+  const [from, to] = [state.start, state.end];
+  Object.assign(state, { preset: "", start: iso(lo), end: iso(lo + span) });
+  if (state.series.some((s) => windowOf(s.points, state.start, state.end).points.length < 3)) Object.assign(state, { start: from, end: to }); // too few points: keep the old range
+  else requestAnimationFrame(draw);
+}
+for (const id of ["growth-chart", "drawdown-chart"]) {
+  const box = $(id);
+  const chart = () => charts?.[id.split("-")[0]];
+  const msAt = (event) => chart().convertFromPixel({ xAxisIndex: 0 }, event.offsetX);
+  box.addEventListener("wheel", (event) => {
+    if (!chart() || !state.start) return;
+    event.preventDefault();
+    const [start, end] = [Date.parse(state.start), Date.parse(state.end)];
+    const at = Math.min(Math.max(msAt(event), start), end);
+    const k = event.deltaY < 0 ? 0.8 : 1.25; // in: shrink the span around the pointer
+    setSpan(at - (at - start) * k, at + (end - at) * k);
+  }, { passive: false });
+  box.addEventListener("pointerdown", (event) => {
+    if (!chart() || !state.start) return;
+    box.setPointerCapture(event.pointerId);
+    const [start, end, x0] = [Date.parse(state.start), Date.parse(state.end), event.offsetX];
+    const msPerPx = (msAt({ offsetX: x0 + 100 }) - msAt({ offsetX: x0 })) / 100;
+    box.onpointermove = (e) => setSpan(start - (e.offsetX - x0) * msPerPx, end - (e.offsetX - x0) * msPerPx);
+    box.onpointerup = () => { box.onpointermove = box.onpointerup = null; };
+  });
+}
+
 $("period").addEventListener("click", (event) => {
   const keyLength = event.target.dataset.keyLength;
   if (!keyLength) return;
@@ -257,6 +298,7 @@ function draw() {
   }
 
   for (const b of document.querySelectorAll(".presets button")) b.setAttribute("aria-pressed", b.dataset.months === state.preset);
+  for (const b of $("step").children) b.setAttribute("aria-pressed", b.dataset.step === state.step);
   for (const b of $("period").children) b.setAttribute("aria-pressed", Number(b.dataset.keyLength) === state.keyLength);
   for (const [id, value] of [["from", state.start], ["to", state.end]]) {
     Object.assign($(id), { min: state.min, max: state.max, value });
@@ -359,9 +401,21 @@ function logTicks(min, max) {
   return ticks;
 }
 
+// Thin [date, value] pairs to one point per day / week / month: the last value in each, placed at the
+// start of its bucket so every line shares the same dates (the shared tooltip needs that).
+function resample(pairs) {
+  const key = (date) => {
+    if (state.step === "month") return `${date.slice(0, 7)}-01`;
+    if (state.step === "week") return iso(Date.parse(date) - ((new Date(date).getUTCDay() + 6) % 7) * DAY); // Monday
+    return date;
+  };
+  const last = new Map(pairs.map(([date, value]) => [key(date), value]));
+  return [...last].map(([date, value]) => [Date.parse(date), value]);
+}
+
 function drawGrowth(windows) {
   const base = frame(longDate, money);
-  const data = windows.map((w) => w.points.map((p) => [Date.parse(p.date), (START_VALUE * p.adjClose) / w.points[0].adjClose]));
+  const data = windows.map((w) => resample(w.points.map((p) => [p.date, (START_VALUE * p.adjClose) / w.points[0].adjClose])));
   const axisLabel = { ...base.yAxis.axisLabel, formatter: (v) => moneyCompact.format(v) };
   let yAxis = { ...base.yAxis, type: "value", scale: true, axisLabel };
   if (state.log) {
@@ -387,7 +441,7 @@ function drawDrawdowns(windows) {
       series: windows.map((w) => {
         const dd = drawdowns(w.points);
         const deepest = dd.reduce((a, b) => (b.value < a.value ? b : a));
-        return line(w, dd.map((d) => [Date.parse(d.date), d.value]), {
+        return line(w, resample(dd.map((d) => [d.date, d.value])), {
           lineStyle: { width: 1.5, color: w.color },
           // Underwater: the deeper below the previous high, the stronger the colour.
           areaStyle: { color: { type: "linear", x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: `${w.color}0d` }, { offset: 1, color: `${w.color}66` }] } },
