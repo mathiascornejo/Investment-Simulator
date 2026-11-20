@@ -10,12 +10,20 @@
   --wash: #f0f0ec;
   --gain: #1f7a4d;
   --loss: #b3372b;
+  --on-ink: #fff; /* text and focus ring on ink surfaces */
+  --focus: var(--ink); /* keyboard focus ring; ink surfaces switch it to --on-ink */
   /* System fonts only: no font downloads, nothing loaded from other sites. */
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   color-scheme: light;
+  accent-color: var(--ink); /* check boxes and date pickers in the house ink, not the system blue */
+  caret-color: var(--ink);
 }
 
 * { box-sizing: border-box; }
+
+/* Room for the scrollbar is kept even on short pages, so switching tabs never shifts the page sideways. */
+html { scrollbar-gutter: stable; scrollbar-color: var(--field-border) transparent; scrollbar-width: thin; }
+::selection { background: #e0ddd3; color: var(--ink); }
 
 [hidden] { display: none !important; } /* layout rules like display:flex must not un-hide things */
 
@@ -41,10 +49,11 @@ body {
 }
 
 :focus-visible {
-  outline: 2px solid var(--ink);
+  outline: 2px solid var(--focus);
   outline-offset: 3px;
   border-radius: 4px;
 }
+.dd-btn:focus-visible, .chip button:focus-visible { outline-offset: 2px; } /* the same ring as the chip box */
 
 /* Top bar */
 .topbar {
@@ -142,6 +151,11 @@ h1 {
   font-size: 0.875rem;
   color: var(--muted);
 }
+
+/* Even line breaks: headings split into balanced lines, paragraphs don't end on one lonely word.
+   Longhands only, so boxes that must stay on one line (white-space: nowrap) are left alone. */
+h1, .profile-title, .empty strong { text-wrap-style: balance; }
+.lede, .hint, footer, .pop { text-wrap-style: pretty; }
 
 .status {
   min-height: 1.5rem;
@@ -361,10 +375,21 @@ button[type="submit"] {
   font-weight: 600;
 }
 
+/* One button family: the ink button and the quiet outlined one share a height, hover, press and disabled look. */
+button[type="submit"], button.quiet { min-height: 2.75rem; transition: background-color 0.15s, border-color 0.15s, transform 0.08s; }
+@media (hover: hover) {
+  button[type="submit"]:hover:not(:disabled) { background: color-mix(in srgb, var(--ink) 82%, var(--surface)); }
+  button.quiet:hover:not(:disabled) { border-color: var(--ink); background: var(--wash); }
+}
+button[type="submit"]:active:not(:disabled), button.quiet:active:not(:disabled) { transform: scale(0.97); }
+@media (prefers-reduced-motion: reduce) { button[type="submit"], button.quiet { transition: none; } }
+
 button:disabled {
   opacity: 0.6;
-  cursor: progress;
+  cursor: not-allowed;
 }
+/* A submit button is only disabled while its form loads or runs, so it shows the busy cursor. */
+button[type="submit"]:disabled { cursor: progress; }
 
 /* A row of mutually exclusive choices. A white pill (js/visuals.js slidingPill) glides to the pressed one. */
 .segmented { position: relative; display: inline-flex; padding: 3px; border-radius: 10px; background: var(--wash); }
@@ -473,6 +498,17 @@ button:disabled {
 .toolbar input[type="date"] { width: 8.75rem; padding-inline: 0.5rem; font-size: 0.8125rem; }
 /* Too narrow for one line (phones, small windows): let the groups wrap instead of overflowing. */
 @media (max-width: 72rem) { .block .toolbar { flex-wrap: wrap; } }
+/* Touch screens: 16px text in the date boxes, or iPhone Safari zooms the page in when one is tapped. */
+@media (pointer: coarse) { .toolbar input[type="date"] { width: 10rem; font-size: 1rem; } }
+/* Phones: each labelled group gets the full width, buttons share it evenly, From and To sit side by side
+   with their words above the boxes, and Step and Scale share the last row when they fit. */
+@media (max-width: 40rem) {
+  .block .toolbar .notch { flex: 1 1 100%; padding-inline: 0.5rem; }
+  .block .toolbar .notch:has(#step), .block .toolbar .notch:has(#log-scale) { flex: 1 1 auto; }
+  .toolbar .notch > .segmented, .toolbar .notch > .segmented button { flex: 1; }
+  .toolbar .notch > label:has(input[type="date"]) { flex: 1 1 0; flex-direction: column; align-items: stretch; gap: 0.125rem; min-width: 0; }
+  .toolbar input[type="date"] { width: 100%; min-width: 0; }
+}
 .block-head { display: contents; } /* its title joins the rail, its controls join the content */
 .block > :not(h2), .block-head > :not(h2) { grid-column: 2; min-width: 0; }
 .block h2 {
@@ -501,7 +537,16 @@ button:disabled {
 .chart-short { height: 14rem; }
 
 /* Statistics table */
-.table-scroll { overflow-x: auto; margin-top: 0.75rem; }
+/* Wide tables scroll sideways: the row names stay put, and a soft shade at the right edge shows there is more.
+   The shade is fixed to the box; a paper cover that scrolls with the table hides it once the end is reached. */
+.table-scroll {
+  overflow-x: auto;
+  margin-top: 0.75rem;
+  background:
+    linear-gradient(to left, var(--paper) 30%, transparent) right / 2.5rem 100% no-repeat local,
+    radial-gradient(farthest-side at 100% 50%, rgba(26, 26, 26, 0.16), transparent) right / 0.875rem 100% no-repeat scroll;
+}
+.table-scroll tr > :first-child { position: sticky; left: 0; z-index: 1; background: var(--paper); }
 
 table {
   width: 100%;
@@ -540,6 +585,17 @@ footer {
 .suggest li[aria-selected="true"] .hint { color: inherit; }
 .suggest .glyph { width: 1rem; height: 1rem; flex: none; color: var(--muted); }
 .suggest li[aria-selected="true"] .glyph { color: inherit; }
+
+/* Touch screens: small controls get a finger-sized tap area (40px) without changing how they look.
+   calc(50% - 1.25rem) on each side of a box makes its invisible ::after exactly 40px across. */
+@media (pointer: coarse) {
+  .chip button, button.term { position: relative; }
+  .chip button::after, .fx .clear::after { content: ""; position: absolute; inset: calc(50% - 1.25rem); }
+  .segmented button::after { content: ""; position: absolute; inset: calc(50% - 1.25rem) 0; }
+  button.term::after { content: ""; position: absolute; inset: -0.5rem 0; }
+  .suggest li { height: 3rem; }
+  .dd li { min-height: 3rem; }
+}
 
 /* ---------- Additions for the Quiet Paper redesign ---------- */
 
@@ -671,7 +727,8 @@ button.term { padding: 0; border: 0; border-bottom: 1.5px dotted var(--field-bor
   padding: 0.625rem 0.625rem 0.625rem 1rem;
   border-radius: 12px;
   background: var(--ink);
-  color: #fff;
+  color: var(--on-ink);
+  --focus: var(--on-ink); /* an ink ring would vanish on the ink toast */
   box-shadow: 0 12px 30px rgba(26, 26, 26, 0.25);
   translate: -50% 0;
   transform: translateY(calc(100% + 7rem));
@@ -694,9 +751,17 @@ button.term { padding: 0; border: 0; border-bottom: 1.5px dotted var(--field-bor
 .switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: calc(1.125rem - 4px); aspect-ratio: 1; border-radius: 50%; background: #fff; transition: transform 0.2s; }
 .switch:checked { background: var(--ink); }
 .switch:checked::after { transform: translateX(0.875rem); }
-.switch:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.switch:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) { .switch, .switch::after { transition: none; } }
 .realbar .real-country { width: 10.5rem; height: 1.875rem; padding: 0 0.875rem; border: 0; border-radius: 999px; background: var(--wash); font: inherit; font-size: 0.875rem; color: var(--ink); }
-.realbar .real-country:focus { outline: 2px solid var(--ink); outline-offset: -2px; }
+.realbar .real-country:focus { outline: 2px solid var(--focus); outline-offset: -2px; }
 .real-country[hidden] { display: none; }
 .realbar .suggest { inset: 100% 0 auto auto; width: 14rem; } /* open under the pill, right-aligned, so it stays on screen */
+/* Touch screens: 16px text, or iPhone Safari zooms the page in when the box is tapped. */
+@media (pointer: coarse) { .realbar .real-country { width: 11.5rem; font-size: 1rem; } }
+/* Phones: the pill takes its own row, below the menu button, so it can line up with both page edges;
+   the country box takes whatever width is left. */
+@media (max-width: 40rem) {
+  .realbar { flex: 1 1 100%; margin-left: -2.75rem; }
+  .realbar .real-country { flex: 1; min-width: 0; padding-inline: 0.625rem; }
+}
