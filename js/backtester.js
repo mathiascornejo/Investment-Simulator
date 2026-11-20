@@ -403,7 +403,7 @@ export function frame(formatHeader, format, pointer = "line") {
           })
           .join(""),
     },
-    xAxis: { axisLine: { lineStyle: { color: AXIS } }, axisTick: { show: false }, axisLabel, splitLine: { show: false } },
+    xAxis: { axisLine: { lineStyle: { color: AXIS } }, axisTick: { show: false }, axisLabel: { ...axisLabel, hideOverlap: true }, splitLine: { show: false } }, // narrow charts drop dates that would overlap
     yAxis: { axisLabel, splitLine: { lineStyle: { color: GRID } } },
   };
 }
@@ -445,8 +445,10 @@ function resample(pairs) {
 // The label at the end of a growth line: its name (shortened if long, more so on narrow screens) and what $10,000 became.
 function endText(w) {
   const name = w.label.replace(/[{}]/g, ""); // braces would be read as ECharts rich-text markup
-  const most = charts.growth.getWidth() < 560 ? 8 : 18;
-  const value = moneyFit.format((START_VALUE * w.points.at(-1).adjClose) / w.points[0].adjClose);
+  const narrow = charts.growth.getWidth() < 560;
+  const most = narrow ? 8 : 18;
+  // On narrow charts the value is shortened too ($168K), so the labels leave room for the lines.
+  const value = (narrow ? moneyCompact : moneyFit).format((START_VALUE * w.points.at(-1).adjClose) / w.points[0].adjClose);
   return `${name.length > most ? `${name.slice(0, most - 1)}…` : name} ${value}`;
 }
 
@@ -466,6 +468,7 @@ function percentAxis(axis, lo, hi) {
 
 // Past market crashes (the S&P 500's peak-to-trough dates) as faint bands behind the lines, cut to the
 // dates on show. Each caption is the crash's name if it fits inside its band, else its first word ("2008").
+// When two captions would run into each other (2020 and 2022 on a narrow chart), only the wider band keeps its caption.
 function crisisBands(chart, grid, data) {
   const first = Math.min(...data.map((d) => d[0][0]));
   const last = Math.max(...data.map((d) => d.at(-1)[0]));
@@ -476,7 +479,18 @@ function crisisBands(chart, grid, data) {
     label: { position: "insideTop", color: MUTED, fontSize: 11 },
     data: CRISES.map((c) => [Math.max(Date.parse(c.start), first), Math.min(Date.parse(c.end), last), c.name])
       .filter(([from, to]) => from < to)
-      .map(([from, to, name]) => [{ name: textWidth(name, 11) + 8 <= (to - from) * pxPerMs ? name : name.split(" ")[0], xAxis: from }, { xAxis: to }]),
+      .map(([from, to, name]) => {
+        const width = (to - from) * pxPerMs;
+        const label = textWidth(name, 11) + 8 <= width ? name : name.split(" ")[0];
+        const [mid, half] = [((from + to) / 2 - first) * pxPerMs, textWidth(label, 11) / 2 + 4];
+        return { from, to, width, label, lo: mid - half, hi: mid + half };
+      })
+      .map((band, i, bands) => {
+        const before = bands.slice(0, i).findLast((b) => b.label);
+        if (before && band.lo < before.hi) (band.width > before.width ? before : band).label = "";
+        return band;
+      })
+      .map(({ from, to, label }) => [{ name: label, xAxis: from }, { xAxis: to }]),
   };
 }
 

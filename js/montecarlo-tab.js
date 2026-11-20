@@ -220,7 +220,7 @@ form.addEventListener("submit", async (event) => {
     t: `Method: fat-tailed curve (Student-t, 4 degrees of freedom). Each month is made up at random from a curve ${curve}. Extreme months come more often than on a bell curve.`,
   }[method];
   $("mc-method").textContent =
-    `${how}${crisis ? ` Every run first replays the real fall of ${name} from ${longDate(crisis.start)} to ${longDate(crisis.end)} (${fitted} ${fitted === 1 ? "month" : "months"}), then carries on as above.` : ""} ` +
+    `${how}${crisis ? ` Every run first replays the real fall of ${name} from ${longDate(crisis.start)} to ${longDate(crisis.end)} (${fitted < prefix.length ? `the first ${fitted} of its ${prefix.length} months` : `${fitted} ${fitted === 1 ? "month" : "months"}`}), then carries on as above.` : ""} ` +
     `Withdrawals are taken monthly.${annualContribution > 0 ? ` Contributions of ${moneyFit.format(annualContribution)} a year are added ${contributeMonthly ? "monthly" : "at the start of each year"} and stay the same every year.` : ""}${fee > 0 ? ` A yearly fee of ${feeRate.format(fee)} is taken a little each month, on top of fund costs, which the prices already include.` : ""} ${inflation.real ? "Balances, withdrawals and contributions are in today's dollars (inflation-adjusted)." : "Balances are in future dollars, not adjusted for inflation."} ` +
     `The future can be worse than anything in this history, and a short history makes the result less reliable.`;
 
