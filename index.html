@@ -94,6 +94,7 @@
           <p class="hint">Scroll over a chart to zoom, drag to move, drag the dates strip to stretch, double-click to reset.</p>
           <div id="growth-chart" class="chart chart-tall"></div>
           <div id="summary" class="summary"></div>
+          <p id="gap-note" class="hint gap-note" hidden></p>
         </div>
 
         <div class="block">
@@ -119,6 +120,11 @@
             <div id="heat-pick" class="segmented" role="group" aria-label="Show monthly returns for"></div>
           </div>
           <div class="table-scroll"><table id="heatmap" class="heatmap"></table></div>
+          <div class="heat-key" role="img" aria-label="Colour key: red for losses, green for gains, a darker shade for every 2.5 points, from 10% down to 10% up.">
+            <i class="heat-l5"></i><i class="heat-l4"></i><i class="heat-l3"></i><i class="heat-l2"></i><i class="heat-l1"></i><i class="heat-g1"></i><i class="heat-g2"></i><i class="heat-g3"></i><i class="heat-g4"></i><i class="heat-g5"></i>
+            <span>−10%</span><span>−5%</span><span>0</span><span>+5%</span><span>+10%</span>
+          </div>
+          <p class="hint">Each shade covers 2.5 points of monthly return. The full-year column has its own wider scale: 10 points a shade, from −40% to +40%.</p>
         </div>
 
         <div class="block">
@@ -140,6 +146,8 @@
           </div>
           </div>
           <div class="table-scroll"><table id="stats"></table></div>
+          <h3 class="data-head">About the data</h3>
+          <ul id="data-notes" class="data-notes"></ul>
         </div>
       </div>
     </section>

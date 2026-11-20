@@ -26,9 +26,10 @@ export const dailyReturns = (points) => points.slice(1).map((p, i) => p.adjClose
 export const totalReturn = (points) => points.at(-1).adjClose / points[0].adjClose - 1;
 
 // Annualised return. Null for windows under a year: annualising a few months is misleading.
+// A week of slack: a "1 year" window starts a few days late when its first day is a weekend or holiday.
 export function cagr(points) {
-  const years = (Date.parse(points.at(-1).date) - Date.parse(points[0].date)) / (365.25 * 864e5);
-  return years < 1 ? null : (1 + totalReturn(points)) ** (1 / years) - 1;
+  const days = (Date.parse(points.at(-1).date) - Date.parse(points[0].date)) / 864e5;
+  return days < 365.25 - 7 ? null : (1 + totalReturn(points)) ** (365.25 / days) - 1;
 }
 
 // How far below its previous peak the series sits on each date (0 at a new high, negative otherwise).
@@ -93,6 +94,20 @@ export function periodReturns(points, keyLength, nextDate) {
     base = p;
   }
   return out;
+}
+
+// Is the gap between two lines more than luck? A 95% confidence range for the yearly return gap (A minus B),
+// from a paired t-test on the calendar months both have in full: 12 x (mean +/- t x sd / sqrt(months)) of the
+// monthly differences. It treats each month as independent. Takes periodReturns(points, 7) of each; null under 6 months.
+export function gapRange(monthsA, monthsB) {
+  const other = new Map(monthsB.filter((m) => !m.partial).map((m) => [m.period, m.value]));
+  const diffs = monthsA.filter((m) => !m.partial && other.has(m.period)).map((m) => m.value - other.get(m.period));
+  if (diffs.length < 6) return null;
+  // Student's t for 95% two-sided, by the Cornish-Fisher expansion: within 0.2% of the printed table from 5 degrees of freedom up.
+  const [z, df] = [1.959964, diffs.length - 1];
+  const t = z + (z ** 3 + z) / (4 * df) + (5 * z ** 5 + 16 * z ** 3 + 3 * z) / (96 * df ** 2) + (3 * z ** 7 + 19 * z ** 5 + 17 * z ** 3 - 15 * z) / (384 * df ** 3);
+  const [m, margin] = [mean(diffs), (t * stdev(diffs)) / Math.sqrt(diffs.length)];
+  return { months: diffs.length, gap: 12 * m, low: 12 * (m - margin), high: 12 * (m + margin) };
 }
 
 // Round, evenly spaced ticks for a percent axis covering lo to hi (fractions: 0.05 is 5%). Steps are 1, 2, 3

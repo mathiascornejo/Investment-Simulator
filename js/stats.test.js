@@ -15,6 +15,9 @@ test("total return and annualised return", () => {
 
 test("annualised return is withheld for windows under a year", () => {
   assert.equal(s.cagr(series([["2020-01-01", 100], ["2020-06-01", 110]])), null);
+  assert.equal(s.cagr(series([["2025-01-01", 100], ["2025-12-20", 110]])), null); // 353 days: more than a week short
+  // A "1 year" window that starts on Monday because the date a year back was a Sunday: 364 days, still annualised.
+  close(s.cagr(series([["2025-11-24", 100], ["2026-11-23", 110]])), 1.1 ** (365.25 / 364) - 1);
 });
 
 test("max drawdown is the worst peak-to-trough fall", () => {
@@ -100,4 +103,23 @@ test("percent axes get round, even steps and just enough decimals", () => {
   assert.deepEqual(s.niceAxis(0, 0), { min: -0.01, max: 0.01, interval: 0.005, decimals: 1 });
   // Two values equal but for rounding noise count as flat, not as a near-zero step.
   assert.deepEqual(s.niceAxis(0.1, 0.1 + 1e-16), { min: 0.09, max: 0.11, interval: 0.005, decimals: 1 });
+});
+
+test("gap range: paired t-test on the months both lines have in full", () => {
+  // A beats B by 3 points, then 1 point, month after month: mean 2 points, sample sd 1.0445 points, 12 months.
+  const months = (values, partial = false) => values.map((value, i) => ({ period: `2020-${String(i + 1).padStart(2, "0")}`, value, partial }));
+  const a = months(Array.from({ length: 12 }, (_, i) => (i % 2 ? 0.01 : 0.03)));
+  const b = months(Array(12).fill(0));
+  // 12 x (0.02 +/- 2.201 x 0.010445 / sqrt(12)), with t = 2.201 from the table for 11 degrees of freedom.
+  const out = s.gapRange(a, b);
+  assert.equal(out.months, 12);
+  close(out.gap, 0.24);
+  close(out.low, 0.160364, 1e-4);
+  close(out.high, 0.319636, 1e-4);
+  // Partial months and months only one line has are left out; under 6 months gives no range.
+  const extra = [...a, { period: "2021-01", value: 0.5, partial: true }, { period: "2021-02", value: 0.5, partial: false }];
+  close(s.gapRange(extra, b).high, out.high);
+  assert.equal(s.gapRange(a.slice(0, 5), b), null);
+  // 6 months, 3 then 1 points: 12 x (0.02 +/- 2.571 x 0.010954 / sqrt(6)), t = 2.571 for 5 degrees of freedom.
+  close(s.gapRange(a.slice(0, 6), b).low, 0.24 - 12 * 2.571 * 0.0109545 / Math.sqrt(6), 2e-4);
 });
