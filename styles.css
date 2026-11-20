@@ -243,10 +243,18 @@ legend {
 
 .holding input { width: 100%; }
 .holding-head { margin-bottom: 0.25rem; font-size: 0.875rem; color: var(--muted); }
+.holding .name { grid-column: 1 / -1; contain: inline-size; margin-top: -0.25rem; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 0.8125rem; color: var(--muted); } /* the fund's name under its row; contain: a long name never widens the columns */
+.holding .name:empty { display: none; }
 .ticker { text-transform: uppercase; }
 
 .total { align-self: center; color: var(--muted); }
 .total[data-off] { color: var(--loss); }
+
+/* Split bar beside the total: a segment per holding in its colour, an outlined gap for what is left, hatched red past 100%. */
+.split { position: relative; display: flex; gap: 2px; flex: 1 1 8rem; max-width: 18rem; height: 0.5rem; align-self: center; border-radius: 999px; overflow: hidden; }
+.split > span { flex: 0 1 0; min-width: 0; }
+.split > .left { border-radius: 999px; box-shadow: inset 0 0 0 1px var(--field-border); }
+.split > .over { position: absolute; top: 0; right: 0; bottom: 0; background: repeating-linear-gradient(-45deg, var(--loss) 0 2px, #f3d9d5 2px 4px); }
 
 .inline-field {
   display: flex;
@@ -268,6 +276,16 @@ button.quiet {
 }
 
 #portfolio-form .status { margin-bottom: 0; }
+.cost-field .fx { max-width: 8rem; }
+.unsaved { align-self: center; font-size: 0.875rem; color: var(--muted); }
+.unsaved::before { content: ""; display: inline-block; width: 0.4375rem; height: 0.4375rem; margin-right: 0.4375rem; border-radius: 50%; background: currentColor; vertical-align: 0.0625rem; }
+#portfolio-status button { margin-left: 0.5rem; } /* Discard / Keep editing after the question */
+
+/* After saving, the button says "Saved" with a tick that draws in, as the fields do. */
+button.saved .tick { width: 1rem; height: 1rem; margin-right: 0.375rem; vertical-align: -0.1875rem; stroke-dasharray: 20; animation: draw-tick 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+@keyframes draw-tick { from { stroke-dashoffset: 20; } to { stroke-dashoffset: 0; } }
+@media (prefers-reduced-motion: reduce) { button.saved .tick { animation: none; } }
+
 #profile { margin-top: 1.5rem; }
 
 .profile-title {
@@ -280,6 +298,7 @@ button.quiet {
 .allocation { display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; margin: 0.75rem 0 0; padding: 0; list-style: none; }
 .allocation li { display: flex; align-items: center; gap: 0.4rem; font-weight: 600; }
 .allocation li span:last-child { font-weight: 400; color: var(--muted); }
+.allocation .name { max-width: 16rem; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 400; color: var(--muted); }
 
 .facts {
   display: grid;
@@ -291,6 +310,12 @@ button.quiet {
 .facts dt { font-size: 0.875rem; color: var(--muted); }
 .facts > div { display: flex; flex-direction: column; } /* figures line up even when a label wraps */
 .facts dd { margin: auto 0 0; padding-top: 0.125rem; font-size: 1.625rem; font-weight: 300; letter-spacing: -0.02em; }
+#profile-trading { margin-top: 1.25rem; }
+
+/* Backup and restore of saved portfolios, at the foot of the tab. */
+.backup { margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid var(--line); }
+.backup > .hint { margin: 0 0 0.75rem; }
+.backup .status { margin-bottom: 0; }
 
 select,
 input:not([type="checkbox"]) {
@@ -626,6 +651,7 @@ footer {
 .correlation th, .correlation td { padding: 0.375rem 0.5rem; border: 2px solid var(--paper); text-align: center; }
 .correlation thead th { font-weight: 600; color: var(--muted); }
 .correlation tbody th { text-align: left; font-weight: 600; color: var(--ink); }
+.correlation tbody th small { display: block; max-width: 12rem; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 0.75rem; font-weight: 400; color: var(--muted); }
 
 /* Empty state when nothing is saved yet. */
 .empty { display: flex; align-items: center; gap: 1.5rem; margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--line); color: var(--muted); }
