@@ -1,15 +1,16 @@
 // Portfolio creator tab: edit and save portfolios, and show a profile of the saved one.
-import { fetchPrices, PROXY_URL } from "./data.js";
-import { summarize, correlation, windowOf } from "./stats.js";
-import { REBALANCE_RULES, loadPortfolios, savePortfolios, portfolioSeries, portfolioProblem, readPortfolio, freeName } from "./portfolios.js";
+import { fetchPrices, PROXY_URL, inflation } from "./data.js";
+import { summarize, correlation, windowOf, dailyReturns, totalReturn, cagr, volatility, maxDrawdown } from "./stats.js";
+import { REBALANCE_RULES, loadPortfolios, savePortfolios, portfolioSeries, portfolioProblem, readPortfolio, freeName, riskShares, effectiveHoldings, diversificationRatio } from "./portfolios.js";
 import { attachTickerSearch } from "./ticker-search.js";
 import { dropdown, liveField } from "./fields.js";
 import { pct, num, longDate, show, element } from "./format.js";
 import { COLORS, frame, addToCompare } from "./backtester.js";
-import { glyph, assetClass, countUp, toast } from "./visuals.js";
+import { glyph, assetClass, countUp, toast, sparkline } from "./visuals.js";
 import { term } from "./glossary.js";
 
 const BENCHMARK = "SPY";
+const INK = "#1a1a1a"; // --ink in styles.css (ECharts can't read CSS variables)
 const EXAMPLE = [{ ticker: "SPY", weight: 60 }, { ticker: "BND", weight: 40 }];
 // Textbook mixes for "Start from". Launch years are the funds' own, so the shortest history is known up front.
 const MODELS = {
@@ -397,48 +398,142 @@ async function showProfile(portfolio) {
   const { points } = run;
   if (points.length < 3) return say("These holdings have no dates in common, so the portfolio can't be measured.", true);
 
-  const count = portfolio.holdings.length;
-  $("profile-title").textContent = portfolio.name;
-
   // Colour follows the holding's place in the portfolio, as in the Backtester.
   const colored = portfolio.holdings.map((h, i) => ({ ...h, color: COLORS[i % COLORS.length] }));
-  const sorted = [...colored].sort((a, b) => b.weight - a.weight);
-  $("allocation").replaceChildren(
-    ...sorted.map((h) => {
-      const dot = Object.assign(element("span"), { className: "swatch" });
-      dot.style.background = h.color;
-      const name = h.name ? [Object.assign(element("span", h.name), { className: "name", title: h.name })] : [];
-      return element("li", dot, glyph(assetClass(h.ticker)), h.ticker, ...name, element("span", `${num.format(h.weight)}%`));
-    }),
-  );
+  // Each holding's prices on the portfolio's own dates, so the risk figures and the grid use the same days.
+  const aligned = portfolio.holdings.map((h) => {
+    const byDate = new Map(prices[h.ticker].map((p) => [p.date, p.adjClose]));
+    return points.map((p) => ({ date: p.date, adjClose: byDate.get(p.date) }));
+  });
+  const returns = aligned.map(dailyReturns);
+  const weights = portfolio.holdings.map((h) => h.weight);
+  const shares = riskShares(weights, returns);
+  const sorted = colored.map((h, i) => ({ ...h, risk: shares[i] })).sort((a, b) => b.weight - a.weight);
+
+  drawHeader(portfolio, points);
+  drawAllocation(sorted);
 
   // The measured period is limited by the holding with the shortest history.
   const newest = portfolio.holdings.reduce((a, b) => (prices[b.ticker][0].date > prices[a.ticker][0].date ? b : a));
+  const benchmark = windowOf(prices[BENCHMARK], points[0].date, points.at(-1).date).points;
+  const benchmarkCovers = benchmark.length > 2 && benchmark[0].date <= points[0].date;
   $("profile-range").textContent =
-    `Measured from ${longDate(points[0].date)} to ${longDate(points.at(-1).date)}` +
-    (count > 1 ? `, the period every holding has data for. ${newest.ticker} has the shortest history.` : ".");
-
-  const stats = summarize(points, prices[BENCHMARK]);
-  const facts = [
-    ["Annualised return", stats.cagr, pct],
-    ["Volatility (annualised)", stats.volatility, pct],
-    ["Maximum drawdown", stats.maxDrawdown, pct],
-    ["Best year", stats.bestYear, pct],
-    ["Worst year", stats.worstYear, pct],
-    ["Sharpe ratio", stats.sharpe, num],
-    [`Beta vs ${BENCHMARK}`, stats.beta, num],
-  ];
-  $("facts").replaceChildren(
-    ...facts.map(([label, value, format]) => {
-      const dd = element("dd");
-      countUp(dd, value, format);
-      return element("div", element("dt", term(label)), dd);
-    }),
-  );
+    (portfolio.holdings.length > 1
+      ? `Measured over the period every holding has data for. ${newest.ticker} has the shortest history.`
+      : `Measured over ${newest.ticker}'s whole price history.`) +
+    (benchmarkCovers ? "" : ` ${BENCHMARK} has no prices before ${longDate(prices[BENCHMARK][0].date)}, so its figures aren't shown.`);
+  drawFacts(summarize(points, prices[BENCHMARK]), benchmarkCovers ? summarize(benchmark, prices[BENCHMARK]) : null);
   $("profile-trading").textContent = tradingNote(portfolio, run);
-  drawCorrelation(portfolio, prices, points);
+  drawCorrelation(colored, aligned, weights, returns);
+  drawRules(portfolio, prices);
   $("profile").hidden = false;
   drawTreemap(sorted);
+}
+
+const swatch = (color) => {
+  const dot = Object.assign(element("span"), { className: "swatch" });
+  dot.style.background = color;
+  return dot;
+};
+const and = (items) => new Intl.ListFormat("en").format(items); // "A, B and C"
+
+// One figure: its label, the number (rolling up), and an optional small line beneath.
+function fact(label, value, format, note) {
+  const dd = element("dd");
+  countUp(dd, value, format);
+  return element("div", element("dt", term(label)), dd, ...(note ? [Object.assign(element("dd", note), { className: "note" })] : []));
+}
+
+const RULE_TEXT = { none: "Never rebalanced", monthly: "Rebalanced every month", quarterly: "Rebalanced every quarter", annual: "Rebalanced every year" };
+
+// Like a fund page's header: how it grew, and what it is.
+function drawHeader(portfolio, points) {
+  $("profile-title").textContent = portfolio.name;
+  const change = totalReturn(points);
+  $("profile-growth").replaceChildren(
+    sparkline(points, "currentColor", 120, 32),
+    Object.assign(element("strong", pct.format(change)), { className: change < 0 ? "loss" : "gain" }),
+    term("total return"),
+  );
+  const count = portfolio.holdings.length;
+  $("profile-meta").textContent = [
+    `${count} holding${count === 1 ? "" : "s"}`,
+    RULE_TEXT[portfolio.rebalance] ?? `Rebalanced when a holding drifts more than ${portfolio.band} points from its target`,
+    `${longDate(points[0].date)} to ${longDate(points.at(-1).date)}`,
+    ...(inflation.real ? ["after inflation"] : []),
+  ].join(" · ");
+}
+
+// One row per holding, largest first: its share of the money and of the ups and downs.
+function drawAllocation(holdings) {
+  // Both columns share one scale, so a row's two bars can be compared; the longest bar fills its track.
+  const top = Math.max(...holdings.flatMap((h) => [h.weight / 100, h.risk]).filter(Number.isFinite));
+  const share = (value, color) => {
+    const fill = element("i");
+    fill.style.width = `${(Math.max(0, value) / top) * 100 || 0}%`; // a negative share has no bar; its figure says it
+    fill.style.background = color;
+    const figure = Object.assign(element("span", show(value, pct)), { className: "figure" });
+    return element("td", Object.assign(element("div", Object.assign(element("span", fill), { className: "track" }), figure), { className: "share" }));
+  };
+  const head = element("tr", ...["Holding", "Share of money", term("Share of risk")].map((label) => Object.assign(element("th", label), { scope: "col" })));
+  const rows = holdings.map((h) => {
+    const name = h.name ? [Object.assign(element("small", h.name), { title: h.name })] : [];
+    const holding = Object.assign(element("th", swatch(h.color), glyph(assetClass(h.ticker)), h.ticker, ...name), { scope: "row" });
+    return element("tr", holding, share(h.weight / 100, h.color), share(h.risk, h.color));
+  });
+  $("allocation").replaceChildren(element("thead", head), element("tbody", ...rows));
+  $("risk-note").textContent = riskNote(holdings);
+}
+
+// The lesson of the two columns, told with this portfolio's own numbers.
+function riskNote(holdings) {
+  if (!holdings.every((h) => Number.isFinite(h.risk))) return "This portfolio's value never moved, so there are no ups and downs to share out.";
+  if (holdings.length < 2) return "";
+  const gap = (h) => h.risk - h.weight / 100;
+  const most = holdings.reduce((a, b) => (gap(b) > gap(a) ? b : a));
+  const lesson = gap(most) < 0.02
+    ? "Each holding causes about as much of the ups and downs as its share of the money."
+    : `${most.ticker} is ${pct.format(most.weight / 100)} of the money but causes ${pct.format(most.risk)} of the ups and downs, because it tends to move further than the portfolio as a whole.`;
+  const calming = holdings.filter((h) => h.risk < 0).map((h) => h.ticker);
+  const calm = !calming.length ? ""
+    : calming.length === 1 ? ` ${calming[0]} tended to move against the rest, so its share is below zero: it calmed the swings.`
+    : ` ${and(calming)} tended to move against the rest, so their shares are below zero: they calmed the swings.`;
+  return `${lesson}${calm} Shares of risk come from daily returns over the measured period, at the target weights.`;
+}
+
+// Return and risk figures in two rows, each with SPY's figure over the same dates beneath it (when SPY has them).
+function drawFacts(stats, spy) {
+  const rows = [
+    ["Return", [["Annualised return", "cagr", pct], ["Best year", "bestYear", pct], ["Worst year", "worstYear", pct]]],
+    ["Risk", [["Volatility (annualised)", "volatility", pct], ["Maximum drawdown", "maxDrawdown", pct], [`Beta vs ${BENCHMARK}`, "beta", num], ["Sharpe ratio", "sharpe", num]]],
+  ];
+  $("facts").replaceChildren(
+    ...rows.map(([title, facts]) => {
+      const list = Object.assign(element("dl", ...facts.map(([label, key, format]) => fact(label, stats[key], format, spy && `${BENCHMARK} ${show(spy[key], format)}`))), { className: "facts" });
+      return Object.assign(element("div", element("h3", title), list), { className: "fact-row" });
+    }),
+  );
+}
+
+// The same holdings and dates under every rebalancing rule, with the saved rule marked. One holding never trades.
+function drawRules(portfolio, prices) {
+  $("rules-block").hidden = portfolio.holdings.length < 2;
+  if (portfolio.holdings.length < 2) return;
+  const band = portfolio.band >= 1 && portfolio.band <= 50 ? portfolio.band : 5; // the saved limit; 5 if it was never set
+  const head = element("tr", ...["Rule", term("Annualised return"), term("Volatility"), term("Maximum drawdown"), "Times rebalanced"].map((label) => Object.assign(element("th", label), { scope: "col" })));
+  const rows = Object.entries(REBALANCE_RULES).map(([rule, label]) => {
+    const { points, rebalances } = portfolioSeries({ ...portfolio, rebalance: rule, band }, prices);
+    const mine = rule === portfolio.rebalance;
+    const name = Object.assign(element("th", rule === "band" ? `${label} by more than ${band} points` : label), { scope: "row" });
+    if (mine) name.append(" ", Object.assign(element("span", "Your rule"), { className: "tag" }));
+    const row = element("tr", name, ...[cagr(points), volatility(dailyReturns(points)), maxDrawdown(points)].map((v) => element("td", show(v, pct))), element("td", String(rebalances)));
+    row.classList.toggle("mine", mine);
+    return row;
+  });
+  $("rules").replaceChildren(element("thead", head), element("tbody", ...rows));
+  $("rules-note").textContent = portfolio.cost
+    ? `Each rebalance pays your trading cost of ${pct.format(portfolio.cost / 100)} on the money moved. Taxes are left out.`
+    : "Trading costs and taxes are left out. Set a trading cost above to include it.";
 }
 
 // How much rebalancing traded, and what it cost, per year.
@@ -449,6 +544,14 @@ function tradingNote(portfolio, run) {
   const paid = run.yearlyCost < 0.00005 ? "less than 0.01%" : `about ${pct.format(run.yearlyCost)}`; // pct shows 2 decimals
   const cost = portfolio.cost ? `Trading costs took ${paid} a year.` : "No trading cost is set.";
   return `${times}, trading about ${pct.format(run.yearlyTurnover)} of the portfolio a year. ${cost}`;
+}
+
+// Ink or white text, whichever contrasts more with a #rrggbb tile (WCAG relative luminance; ink's is 0.0103).
+function labelColor(hex) {
+  const linear = (c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  const [r, g, b] = [1, 3, 5].map((i) => linear(parseInt(hex.slice(i, i + 2), 16) / 255));
+  const light = 0.2126 * r + 0.7152 * g + 0.0722 * b + 0.05;
+  return light / 0.0603 >= 1.05 / light ? INK : "#fff";
 }
 
 // Weights as tiles: area is the weight.
@@ -477,39 +580,60 @@ function drawTreemap(holdings) {
         breadcrumb: { show: false },
         left: 0, right: 0, top: 0, bottom: 0,
         itemStyle: { borderColor: "#fafaf8", borderWidth: 3, gapWidth: 3, borderRadius: 6 },
-        label: { formatter: (item) => `${item.name}\n${num.format(item.value)}%`, fontWeight: 600, fontSize: 13, lineHeight: 18 },
-        data: holdings.map((h) => ({ name: h.ticker, title: h.name, value: h.weight, itemStyle: { color: h.color } })),
+        // Tickers are letters, digits, dots and dashes, so they can't break the {style|text} markup.
+        label: {
+          formatter: (item) => `{ticker|${item.name}}\n{weight|${num.format(item.value)}%}`,
+          rich: { ticker: { fontWeight: 600, fontSize: 13, lineHeight: 18 }, weight: { fontWeight: 300, fontSize: 18, lineHeight: 24 } },
+        },
+        // Labels only where they fit (the tooltip still names small tiles), in whichever of ink or white reads better.
+        data: holdings.map((h) => ({ name: h.ticker, title: h.name, value: h.weight, itemStyle: { color: h.color }, label: { show: h.weight >= 4, color: labelColor(h.color) } })),
       }],
     },
     true,
   );
 }
 
-// Correlation of each pair of holdings' daily returns over the period every holding has.
-function drawCorrelation(portfolio, prices, points) {
-  const tickers = portfolio.holdings.map((h) => h.ticker);
-  $("correlation-block").hidden = tickers.length < 2;
-  if (tickers.length < 2) return;
-  const series = tickers.map((t) => windowOf(prices[t], points[0].date, points.at(-1).date).points);
-  const fullName = (i) => portfolio.holdings[i].name ?? "";
-  const head = element("tr", element("td"), ...tickers.map((t, i) => Object.assign(element("th", t), { scope: "col", title: fullName(i) })));
-  const rows = tickers.map((t, i) =>
+// Correlation of each pair of holdings' daily returns over the measured period, then how much the mix diversifies.
+function drawCorrelation(holdings, aligned, weights, returns) {
+  const n = holdings.length;
+  $("correlation-block").hidden = n < 2;
+  if (n < 2) return;
+  const corr = aligned.map((a, i) => aligned.map((b, j) => (j < i ? correlation(a, b) : NaN)));
+  const head = element("tr", element("td"), ...holdings.map((h) => Object.assign(element("th", swatch(h.color), h.ticker), { scope: "col", title: h.name ?? "" })));
+  const rows = holdings.map((h, i) =>
     element(
       "tr",
-      Object.assign(element("th", t, ...(fullName(i) ? [element("small", fullName(i))] : [])), { scope: "row", title: fullName(i) }),
-      ...tickers.map((_, j) => {
-        const c = i === j ? 1 : correlation(series[i], series[j]);
-        const cell = element("td", show(c, num));
-        if (Number.isFinite(c)) {
-          // Blue for moving together, orange for moving apart; stronger for bigger numbers.
-          cell.style.background = c >= 0 ? `rgba(42, 120, 214, ${0.08 + 0.8 * c})` : `rgba(235, 104, 52, ${0.08 + 0.8 * -c})`;
-          if (Math.abs(c) > 0.55) cell.style.color = "#fff";
+      Object.assign(element("th", swatch(h.color), h.ticker, ...(h.name ? [element("small", h.name)] : [])), { scope: "row", title: h.name ?? "" }),
+      ...holdings.map((_, j) => {
+        if (j > i) return element("td"); // the upper half would repeat the lower half
+        if (j === i) {
+          const dash = element("span", "–");
+          dash.setAttribute("aria-hidden", "true");
+          return Object.assign(element("td", dash, Object.assign(element("span", "same holding"), { className: "visually-hidden" })), { className: "self" });
         }
+        const c = corr[i][j];
+        const cell = element("td", show(c, num));
+        // Blue for moving together, orange for moving apart; stronger for bigger numbers. The key under the grid matches.
+        if (Number.isFinite(c)) cell.style.background = c >= 0 ? `rgba(42, 120, 214, ${0.08 + 0.6 * c})` : `rgba(235, 104, 52, ${0.08 + 0.6 * -c})`;
         return cell;
       }),
     ),
   );
   $("correlation").replaceChildren(element("thead", head), element("tbody", ...rows));
+
+  $("diversity").replaceChildren(
+    fact("Effective number of holdings", effectiveHoldings(weights), num, `Out of ${n} holdings`),
+    fact("Diversification ratio", diversificationRatio(weights, returns), num, "1.00 means mixing calmed nothing"),
+  );
+  const twins = [];
+  corr.forEach((row, i) => row.forEach((c, j) => { if (c > 0.95) twins.push([holdings[j].ticker, holdings[i].ticker, c]); }));
+  const pair = ([a, b, c]) => `${a} and ${b} (${num.format(c)})`;
+  $("duplicates").textContent = !twins.length
+    ? "No two holdings move almost identically (a correlation above 0.95)."
+    : twins.length === 1
+      ? `${twins[0][0]} and ${twins[0][1]} move almost identically (correlation ${num.format(twins[0][2])}), so together they work like one holding.`
+      : `These pairs move almost identically, so each pair works like one holding: ${and(twins.map(pair))}.`;
+  $("duplicates").classList.toggle("flag", twins.length > 0);
 }
 
 // Start

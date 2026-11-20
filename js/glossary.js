@@ -15,6 +15,9 @@ const DEFINITIONS = {
   beta: ["How much it tends to move when SPY moves 1%. 1 means in step, 0.5 half as much, above 1 more.", "covariance with SPY ÷ variance of SPY"],
   drawdown: ["How far the value sits below its previous high on each day. 0% means it is at a new high.", null],
   correlation: ["How closely two holdings' daily returns move together: 1 is in step, 0 unrelated, −1 opposite. Lower numbers mean more diversification.", null],
+  "share of risk": ["How much of the portfolio's ups and downs come from this holding, at its target weight. The shares add up to 100%. A holding that tends to move further than the portfolio as a whole causes more than its share of the money.", "weight × covariance with the portfolio ÷ portfolio variance"],
+  "effective number of holdings": ["How many equal-sized holdings the weights are worth. Ten holdings with one at 90% count as only about 1.2.", "1 ÷ sum of squared weights"],
+  "diversification ratio": ["The holdings' own volatility, averaged by weight, divided by the portfolio's. 1 means mixing them calmed nothing; higher means a calmer ride than the parts.", "weighted average volatility ÷ portfolio volatility"],
   rebalancing: ["Trading back to the target weights after prices have moved them apart.", null],
   percentile: ["The 10th percentile is the result that 10% of runs ended below; the median is the middle run.", null],
 };
