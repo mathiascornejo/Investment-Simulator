@@ -71,14 +71,20 @@ body {
   align-items: center;
   gap: 0.6rem;
   margin-bottom: 1rem;
-  font: 500 1.125rem/1 var(--sans);
+  font: 300 1.125rem/1 var(--sans);
   letter-spacing: -0.01em;
   color: inherit;
   text-decoration: none;
 }
+.brand b { font-weight: 600; } /* two-weight wordmark: "Investment" firm, "Simulator" light like the headings */
 
 @media (max-width: 75rem) { .topbar { padding-left: 2.75rem; } } /* clears the menu button where the page is as wide as the screen */
 .brand svg { width: 1.75rem; height: 1.75rem; }
+
+/* Site notices under the top bar (js/app.js): a part of the site that failed to load, or no connection. */
+.notice { flex: 1 1 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1rem; margin: 0 0 1rem; padding: 0.5rem 0.5rem 0.5rem 1rem; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); font-size: 0.875rem; }
+.notice:empty { position: absolute; margin: 0; padding: 0; border: 0; } /* takes no room but stays in place, so screen readers announce text put in it later */
+.notice button { margin-left: auto; }
 
 kbd { font: 600 0.75rem/1 var(--sans); padding: 0.1875rem 0.375rem; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; color: var(--muted); }
 
@@ -103,12 +109,15 @@ body.menu-open { padding-left: 15rem; }
   transition: translate 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 body.menu-open .sidebar { translate: 0; }
+/* A soft ink veil over the page while the floating menu is open; tapping it closes the menu. */
+.veil { position: fixed; z-index: 9; inset: 0; background: rgba(26, 26, 26, 0.15); opacity: 0; visibility: hidden; transition: opacity 0.25s, visibility 0.25s; }
 /* Under 60rem there is no room to push: the menu floats over the page instead. */
 @media (max-width: 60rem) {
-  body.menu-open { padding-left: 0; }
+  body.menu-open { padding-left: 0; overflow: hidden; } /* the page behind stays put while the menu is open */
   body.menu-open .sidebar { box-shadow: 0 8px 24px rgba(26, 26, 26, 0.12); }
+  body.menu-open .veil { opacity: 1; visibility: visible; }
 }
-@media (prefers-reduced-motion: reduce) { body, .sidebar { transition: none; } }
+@media (prefers-reduced-motion: reduce) { body, .sidebar, .veil { transition: none; } }
 .sidebar nav { display: grid; gap: 0.125rem; }
 .sidebar a {
   display: flex;
@@ -652,6 +661,8 @@ footer {
   font-size: 0.875rem;
   color: var(--muted);
 }
+footer p { margin: 0; }
+footer p + p { margin-top: 0.25rem; }
 
 /* Ticker suggestions (js/ticker-search.js). */
 .suggest { position: absolute; z-index: 5; inset: 100% auto auto 0; width: max(100%, min(28rem, 90vw)); margin: 0.25rem 0 0; padding: 0.25rem 0; list-style: none; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 12px 32px rgba(21, 35, 59, 0.18); }

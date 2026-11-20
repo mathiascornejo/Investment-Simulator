@@ -4,7 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Investment Simulator</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M3 18 29 4v24Z' fill='%2315233b' opacity='.15'/%3E%3Cpath d='M3 18 29 4M3 18l26 10' fill='none' stroke='%2315233b' stroke-width='2' stroke-linecap='round'/%3E%3Cpath d='M3 18 29 13' fill='none' stroke='%23e9a21b' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+  <meta name="theme-color" content="#fafaf8">
+  <!-- The header mark (sun over a line chart on a baseline), simplified to read at 16px. The paper tile keeps it visible on dark tab bars. -->
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Crect width='48' height='48' rx='10' fill='%23fafaf8'/%3E%3Ccircle cx='25' cy='22' r='12' fill='%23e9a21b'/%3E%3Cpath d='M3 33h42' stroke='%23fafaf8' stroke-width='8'/%3E%3Cpath d='M6 33 16 25l8 5 18-16' fill='none' stroke='%231a1a1a' stroke-width='4.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M6 41h36' stroke='%231a1a1a' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <link rel="stylesheet" href="styles.css">
   <!-- Chart library. Pinned version; the integrity hash makes the browser reject a tampered file. -->
   <script defer src="https://cdn.jsdelivr.net/npm/echarts@6.1.0/dist/echarts.min.js" integrity="sha256-tmslrrTfhOMxmdwhaUAU0zbSIsvZ3rDlp8FL1qoND9A=" crossorigin="anonymous"></script>
@@ -17,15 +20,15 @@
   </button>
 
   <header class="topbar">
-    <div class="brand">
+    <a href="#backtester" class="brand">
       <svg viewBox="0 0 48 48" fill="none" aria-hidden="true">
         <circle cx="24" cy="26" r="11" fill="#e9a21b"/>
         <path d="M4 34h40" stroke="var(--paper)" stroke-width="7"/>
         <path d="M4 34 13 28l7 4 9-9 6 4 9-9" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
         <path d="M4 40h40" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
       </svg>
-      Investment Simulator
-    </div>
+      <span><b>Investment</b> Simulator</span>
+    </a>
     <div class="realbar">
       <label class="real" title="Show returns in today's dollars, after inflation"><input type="checkbox" id="real-toggle" class="switch"> Inflation-adjusted</label>
       <input id="real-country" class="real-country" aria-label="Whose inflation" autocomplete="off" spellcheck="false" hidden>
@@ -40,6 +43,8 @@
       <a href="#monte-carlo"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="4"/><circle cx="8.5" cy="8.5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="15.5" cy="15.5" r="1"/></svg>Monte Carlo Simulation</a>
     </nav>
   </aside>
+  <!-- Under 60rem the menu floats over the page: this veil dims the page, and tapping it closes the menu. -->
+  <div id="veil" class="veil"></div>
 
   <main>
     <section id="backtester">
@@ -398,6 +403,9 @@
     </section>
   </main>
 
-  <footer>For education only. This simulator does not give investment advice, and past performance does not predict future returns.</footer>
+  <footer>
+    <p>For education only. This simulator does not give investment advice, and past performance does not predict future returns.</p>
+    <p>Prices come from Tiingo, from Yahoo Finance for markets outside the US, and from PSE Edge for Philippine stocks, whose prices leave out dividends and stock splits. T-bill yields come from PDS, and inflation from FRED and the World Bank. Saved portfolios stay in this browser only.</p>
+  </footer>
 </body>
 </html>
