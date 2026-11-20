@@ -1,7 +1,7 @@
 // Run with: node --test js/montecarlo.test.js
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { walk, percentile, simulate, crisisTest, historicalRun, mulberry32, logStats, monthDrawer, failureYears, crisisMonths } from "./montecarlo.js";
+import { walk, percentile, simulate, crisisTest, historicalRun, mulberry32, logStats, monthDrawer, failureYears, crisisMonths, everyStart, shareAtOrBelow, withStandIns, standIns, CRISES } from "./montecarlo.js";
 
 const series = (pairs) => pairs.map(([date, adjClose]) => ({ date, adjClose }));
 const close = (actual, expected, tolerance = 1e-6) =>
@@ -10,7 +10,7 @@ const flat = (months) => Array(months).fill(0);
 
 test("walk: with no growth, withdrawals drain the balance on schedule", () => {
   // 1,000,000 with 100,000 a year lasts exactly ten years.
-  const out = walk(flat(240), 1_000_000, 100_000, 0);
+  const out = walk(flat(240), { startValue: 1_000_000, annualWithdrawal: 100_000 });
   close(out.yearly[1], 900_000, 0.01);
   close(out.yearly[5], 500_000, 0.01);
   assert.equal(out.yearly[10], 0);
@@ -20,14 +20,14 @@ test("walk: with no growth, withdrawals drain the balance on schedule", () => {
 });
 
 test("walk: returns compound and nothing fails without withdrawals", () => {
-  const out = walk(Array(24).fill(0.01), 1000, 0, 0);
+  const out = walk(Array(24).fill(0.01), { startValue: 1000 });
   close(out.yearly[1], 1000 * 1.01 ** 12);
   close(out.final, 1000 * 1.01 ** 24);
   assert.equal(out.ranOutAt, null);
 });
 
 test("walk: withdrawals rise each year by the growth rate", () => {
-  const out = walk(flat(24), 1000, 120, 0.5); // 10 a month, then 15 a month
+  const out = walk(flat(24), { startValue: 1000, annualWithdrawal: 120, growth: 0.5 }); // 10 a month, then 15 a month
   close(out.yearly[1], 880);
   close(out.yearly[2], 700);
 });
@@ -92,10 +92,10 @@ test("crisisTest reports no data when the series starts after the crisis began",
 
 test("historicalRun follows the real months from the start date", () => {
   const p = series([["2020-01-31", 100], ["2020-02-28", 50], ["2020-03-31", 100], ["2020-04-30", 100]]);
-  const kept = historicalRun(p, "2020-01-31", 1000, 0, 0);
+  const kept = historicalRun(p, "2020-01-31", { startValue: 1000 });
   close(kept.final, 1000); // halves, doubles, flat
   assert.equal(kept.ranOutIn, null);
-  const drained = historicalRun(p, "2020-01-31", 1000, 7200, 0); // 600 a month
+  const drained = historicalRun(p, "2020-01-31", { startValue: 1000, annualWithdrawal: 7200 }); // 600 a month
   assert.equal(drained.ranOutIn, "2020-03"); // 400 -> 200 after February, then March's 600 empties it
   assert.equal(drained.final, 0);
 });
@@ -108,12 +108,12 @@ test("simulate: sample paths follow the first runs year by year", () => {
 });
 
 test("contributions: monthly and annual add the same money, annual a little later", () => {
-  const monthly = walk(Array(12).fill(0), 0, 0, 0, 1200, true);
-  const annual = walk(Array(12).fill(0), 0, 0, 0, 1200, false);
+  const monthly = walk(Array(12).fill(0), { startValue: 0, annualContribution: 1200 });
+  const annual = walk(Array(12).fill(0), { startValue: 0, annualContribution: 1200, contributeMonthly: false });
   assert.equal(monthly.final, 1200);
   assert.equal(annual.final, 1200);
-  assert.deepEqual(walk([0, 0], 0, 0, 0, 1200, false).yearly, [0]); // nothing at the year-end mark yet
-  assert.equal(walk([0, 0], 0, 0, 0, 1200, false).final, 1200); // all of it lands in month 1
+  assert.deepEqual(walk([0, 0], { startValue: 0, annualContribution: 1200, contributeMonthly: false }).yearly, [0]); // nothing at the year-end mark yet
+  assert.equal(walk([0, 0], { startValue: 0, annualContribution: 1200, contributeMonthly: false }).final, 1200); // all of it lands in month 1
   assert.equal(simulate({ monthlyReturns: [0], startValue: 1000, annualWithdrawal: 600, growth: 0, annualContribution: 600, years: 3, runs: 5 }).failureRate, 0); // contributions cancel the withdrawals
 });
 
@@ -181,7 +181,7 @@ test("simulate: the same seed repeats a run; a fee only ever makes the same runs
   for (const key of ["p10", "p50", "p90"]) assert.ok(charged.bands[key].at(-1) <= plain.bands[key].at(-1));
   // 10% a year, taken monthly, leaves exactly 90% after a flat year.
   close(simulate({ monthlyReturns: [0], startValue: 1000, annualWithdrawal: 0, growth: 0, years: 1, runs: 3, fee: 0.1 }).bands.p50[1], 900);
-  close(walk(flat(12), 1000, 0, 0, 0, true, 0.1).final, 900);
+  close(walk(flat(12), { startValue: 1000, fee: 0.1 }).final, 900);
 });
 
 test("simulate: counts when runs ran out, year by year", () => {
@@ -214,6 +214,108 @@ test("crisisMonths: month-long steps from the start date to the low, from the la
   close(months[1], -0.2);
   assert.equal(crisisMonths(p, { start: "2019-12-01", end: "2020-03-20" }), null); // starts before the data
   assert.equal(crisisMonths(p, { start: "2020-03-01", end: "2020-06-01" }), null); // ends after the data
-  const charged = historicalRun(series([["2020-01-31", 100], ["2020-02-28", 100]]), "2020-01-31", 1000, 0, 0, 0, true, 0.1);
+  const charged = historicalRun(series([["2020-01-31", 100], ["2020-02-28", 100]]), "2020-01-31", { startValue: 1000, fee: 0.1 });
   close(charged.final, 1000 * 0.9 ** (1 / 12)); // one month of a 10% yearly fee
+});
+
+// Three years worked by hand: returns are 0 except the last month of each year (-50%, +100%, +100%), then one flat month.
+const threeYears = [...flat(11), -0.5, ...flat(11), 1, ...flat(11), 1, 0];
+
+test("guardrails: no rise after a losing year, cut above 120% of the starting rate, raised below 80%", () => {
+  // Starting rate 50 / 1,000 = 5%, so the guardrails sit at 6% and 4%.
+  // Year 1: (1,000 - 50) × 0.5 = 475. A losing year: no rise. 50 / 475 = 10.5%, above 6%: cut to 45.
+  // Year 2: (475 - 45) × 2 = 860. Rise 10% to 49.5; 49.5 / 860 = 5.8%, inside the guardrails.
+  // Year 3: (860 - 49.5) × 2 = 1,621. Rise to 54.45; 54.45 / 1,621 = 3.4%, below 4%: raised to 59.895.
+  const plan = { startValue: 1000, annualWithdrawal: 50, growth: 0.1 };
+  const guarded = walk(threeYears, { ...plan, rule: "guardrails" });
+  [1000, 475, 860, 1621].forEach((v, i) => close(guarded.yearly[i], v, 1e-9));
+  close(guarded.final, 1621 - 59.895 / 12, 1e-9);
+  // The fixed rule rises 10% every year: (475 - 55) × 2 = 840, (840 - 60.5) × 2 = 1,559.
+  const fixed = walk(threeYears, plan);
+  [1000, 475, 840, 1559].forEach((v, i) => close(fixed.yearly[i], v, 1e-9));
+  // simulate() follows the same rule, and reports what was spent each year.
+  const out = simulate({ monthlyReturns: [0], prefix: threeYears, ...plan, rule: "guardrails", years: 3, runs: 2 });
+  [1000, 475, 860, 1621].forEach((v, i) => close(out.bands.p50[i], v, 1e-9));
+  [50, 45, 49.5].forEach((v, i) => close(out.spending.p50[i], v, 1e-9));
+  assert.equal(simulate({ monthlyReturns: [0], ...plan, years: 1, runs: 1 }).spending, undefined); // fixed rule: not tracked
+});
+
+test("guardrails: a run that runs out spends only what was left, then nothing", () => {
+  // Year 1: 700 spent, 300 left. 700 / 300 is far above 120% of the starting 70%, so year 2's withdrawal is cut to 630.
+  // Year 2: 52.5 a month; the 6th withdrawal finds 37.5 left. Spent: 5 × 52.5 + 37.5 = 300.
+  const out = simulate({ monthlyReturns: [0], startValue: 1000, annualWithdrawal: 700, growth: 0, rule: "guardrails", years: 3, runs: 1 });
+  close(out.spending.p50[0], 700);
+  close(out.spending.p50[1], 300);
+  assert.equal(out.spending.p50[2], 0);
+  assert.equal(out.failureRate, 1);
+});
+
+test("perfect withdrawal rates: flat months give the starting amount divided by the years", () => {
+  const out = simulate({ monthlyReturns: [0], startValue: 1000, annualWithdrawal: 40, growth: 0, years: 25, runs: 3, perfectRates: true });
+  for (const r of out.perfectRates) close(r, 1 / 25, 1e-12);
+  assert.equal(simulate({ monthlyReturns: [0], startValue: 1000, annualWithdrawal: 40, growth: 0, years: 1, runs: 1 }).perfectRates, undefined);
+});
+
+test("perfect withdrawal rates: a hand-worked year, and the exact line between lasting and running out", () => {
+  // Month 1 doubles, the rest are flat: per dollar of yearly withdrawal, 1/12 is owed before the doubling and 11/12
+  // after it (worth half as much in starting money), 13/24 in all, so the rate is 24/13. Check: 1,846.15 a year is
+  // 153.85 a month; (1,000 - 153.85) × 2 = 1,692.31, which the other 11 withdrawals empty exactly.
+  const year = [1, ...flat(11)];
+  close(simulate({ monthlyReturns: [0], prefix: year, startValue: 1000, annualWithdrawal: 0, growth: 0, years: 1, runs: 1, perfectRates: true }).perfectRates[0], 24 / 13, 1e-12);
+  // With varied months, a yearly rise and a fee: just under the rate lasts, just over runs out in the last month.
+  const months = [0.05, -0.08, 0.03, 0.02, -0.04, 0.06, 0.01, -0.02, 0.04, -0.06, 0.03, 0.02, -0.1, 0.07, 0.01, 0.02, -0.03, 0.05, 0.02, -0.01, 0.04, 0.03, -0.05, 0.02];
+  const setup = { startValue: 1000, growth: 0.03, fee: 0.01 };
+  const rate = simulate({ monthlyReturns: [0], prefix: months, ...setup, annualWithdrawal: 0, years: 2, runs: 1, perfectRates: true }).perfectRates[0];
+  assert.equal(walk(months, { ...setup, annualWithdrawal: rate * 1000 * 0.999 }).ranOutAt, null);
+  assert.equal(walk(months, { ...setup, annualWithdrawal: rate * 1000 * 1.001 }).ranOutAt, 23);
+  // Over many random runs, the share of rates at or below yours is your failure rate.
+  const many = { monthlyReturns: [-0.06, -0.02, 0.01, 0.03, 0.07], startValue: 1000, annualWithdrawal: 45, growth: 0.03, years: 25, runs: 3000, seed: 9 };
+  const result = simulate({ ...many, perfectRates: true });
+  close(shareAtOrBelow(result.perfectRates, 0.045), result.failureRate, 1e-9);
+});
+
+test("shareAtOrBelow counts ties as at or below", () => {
+  const sorted = [0.02, 0.03, 0.03, 0.05];
+  assert.equal(shareAtOrBelow(sorted, 0.01), 0);
+  assert.equal(shareAtOrBelow(sorted, 0.03), 0.75);
+  assert.equal(shareAtOrBelow(sorted, 0.05), 1);
+});
+
+test("everyStart: one real run from every month with the whole horizon ahead", () => {
+  // 13 months, the first a 50% fall: two one-year starts at 50 a month from 1,000.
+  // From month 1: (1,000 - 50) × 0.5 = 475, which the 11th withdrawal (month index 10) runs out on.
+  // From month 2: twelve flat months leave 1,000 - 600 = 400.
+  const starts = everyStart([-0.5, ...flat(12)], 1, { startValue: 1000, annualWithdrawal: 600 });
+  assert.equal(starts.length, 2);
+  assert.equal(starts[0].ranOutAt, 10);
+  assert.equal(starts[1].ranOutAt, null);
+  close(starts[1].final, 400);
+  assert.deepEqual(everyStart(flat(11), 1, { startValue: 1000 }), []); // shorter than the horizon
+});
+
+test("withStandIns joins the stand-in's returns onto the fund's first price", () => {
+  const fund = series([["2010-09-09", 100], ["2010-09-10", 101]]);
+  const spy = series([["2010-09-07", 40], ["2010-09-08", 50], ["2010-09-09", 55], ["2010-09-10", 56]]);
+  const out = withStandIns(fund, [{ ticker: "SPY", points: spy }]);
+  assert.deepEqual(out.points.map((p) => p.date), ["2010-09-07", "2010-09-08", "2010-09-09", "2010-09-10"]);
+  close(out.points[1].adjClose, (50 * 100) / 55); // 50 -> 55 is +10%, and so is the joined step to 100
+  close(out.points[1].adjClose / out.points[0].adjClose, 50 / 40); // the stand-in's own returns are kept
+  assert.deepEqual(out.points.slice(2), fund); // the fund's own prices are unchanged
+  assert.deepEqual(out.used, [{ ticker: "SPY", before: "2010-09-09" }]);
+  // A chain: VFINX before SPY's first day; a stand-in that starts later than the fund adds nothing.
+  const vfinx = series([["2010-09-06", 10], ["2010-09-07", 11]]);
+  const chained = withStandIns(fund, [{ ticker: "SPY", points: spy }, { ticker: "VFINX", points: vfinx }, { ticker: "LATE", points: fund.slice(1) }]);
+  assert.equal(chained.points[0].date, "2010-09-06");
+  close(chained.points[1].adjClose / chained.points[0].adjClose, 11 / 10); // VFINX's 10% rise joins SPY's first close
+  assert.deepEqual(chained.used, [{ ticker: "SPY", before: "2010-09-09" }, { ticker: "VFINX", before: "2010-09-07" }]);
+  assert.deepEqual(standIns("VOO"), ["SPY", "VFINX"]);
+  assert.deepEqual(standIns("GLD"), []);
+});
+
+test("crises are in date order, each from the S&P 500's peak to its low", () => {
+  CRISES.forEach((c, i) => {
+    assert.ok(c.start < c.end, c.name);
+    if (i) assert.ok(CRISES[i - 1].end < c.start, c.name);
+  });
+  assert.equal(CRISES.length, 9);
 });
