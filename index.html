@@ -154,6 +154,11 @@
           <select id="portfolio-pick"></select>
         </div>
         <div class="field">
+          <label for="start-from">Start from a model portfolio</label>
+          <select id="start-from"></select>
+          <p class="hint">Well-known mixes to study, not advice.</p>
+        </div>
+        <div class="field">
           <label for="portfolio-name">Name</label>
           <input id="portfolio-name" required maxlength="40" autocomplete="off">
         </div>
@@ -163,6 +168,7 @@
           <div id="holdings"></div>
           <div class="row">
             <button type="button" id="add-holding" class="quiet">Add holding</button>
+            <div id="split" class="split" aria-hidden="true"></div>
             <span id="weight-total" class="total"></span>
           </div>
         </fieldset>
@@ -175,9 +181,16 @@
             <span>percentage points from its target.</span>
           </p>
         </div>
+        <div class="field cost-field">
+          <label for="trade-cost">Trading cost, % of each trade</label>
+          <input type="number" id="trade-cost" min="0" max="5" step="any" value="0" inputmode="decimal" aria-describedby="trade-cost-hint">
+          <p id="trade-cost-hint" class="hint">Taken from the portfolio each time it rebalances, for example 0.10%. The first purchase is free.</p>
+        </div>
         <div class="row">
           <button type="submit">Save portfolio</button>
+          <button type="button" id="copy-portfolio" class="quiet" hidden>Save as copy</button>
           <button type="button" id="delete-portfolio" class="quiet" hidden>Delete portfolio</button>
+          <span id="unsaved" class="unsaved" hidden>Unsaved changes</span>
         </div>
         <p id="portfolio-status" class="status" role="status"></p>
       </form>
@@ -207,11 +220,22 @@
           <h2>Risk and Return</h2>
           <p id="profile-range" class="hint"></p>
           <dl id="facts" class="facts"></dl>
+          <p id="profile-trading" class="hint"></p>
         </div>
         <div class="block">
           <h2>Sector and Regional Mix</h2>
           <p class="hint">Not available yet. The price source doesn't publish what each fund holds, so this needs a second data source.</p>
         </div>
+      </div>
+
+      <div class="backup">
+        <p class="hint">Your portfolios are kept only in this browser. Download a copy to keep them safe or to move them to another device.</p>
+        <div class="row">
+          <button type="button" id="backup-portfolios" class="quiet">Download my portfolios</button>
+          <button type="button" id="restore-portfolios" class="quiet">Load from file</button>
+          <input type="file" id="restore-file" accept=".json,application/json" hidden>
+        </div>
+        <p id="backup-status" class="status" role="status"></p>
       </div>
     </section>
 
