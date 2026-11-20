@@ -312,13 +312,24 @@ button.saved .tick { width: 1rem; height: 1rem; margin-right: 0.375rem; vertical
   letter-spacing: -0.02em;
 }
 
-/* Profile: allocation bars (one hue, length carries the weight) and key facts */
-.allocation { display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; margin: 0.75rem 0 0; padding: 0; list-style: none; }
-.allocation li { display: flex; align-items: center; gap: 0.4rem; max-width: 100%; font-weight: 600; } /* a long fund name shortens instead of widening the page */
-.allocation li span:last-child { font-weight: 400; color: var(--muted); }
-.allocation .swatch, .allocation .glyph { flex: none; }
-.allocation .glyph { width: 1rem; height: 1rem; color: var(--muted); }
-.allocation .name { max-width: 16rem; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 400; color: var(--muted); }
+/* Profile header: the growth line with its total change, then a muted line saying what the portfolio is. */
+.profile-growth { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.625rem; margin: 0.625rem 0 0; }
+.profile-growth .spark { width: 7.5rem; height: 2rem; flex: none; }
+.profile-growth strong { font-size: 1.25rem; font-weight: 400; }
+#profile-meta { margin-top: 0.25rem; }
+
+/* Profile: one row per holding. Its share of the money and of the risk are bars on one scale, figures right-aligned. */
+.allocation thead th { text-align: left; font-size: 0.875rem; font-weight: 400; color: var(--muted); }
+.allocation tbody th { font-weight: 600; color: var(--ink); }
+.allocation .swatch, .allocation .glyph { vertical-align: middle; }
+.allocation .glyph { width: 1rem; height: 1rem; margin-right: 0.375rem; color: var(--muted); }
+.allocation tbody th small { display: block; max-width: 14rem; overflow: hidden; text-overflow: ellipsis; font-size: 0.8125rem; font-weight: 400; color: var(--muted); } /* a long fund name shortens instead of widening the table */
+.allocation td { width: 38%; }
+.share { display: flex; align-items: center; gap: 0.75rem; }
+.share .track { flex: 1; min-width: 4rem; height: 0.5rem; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--line); overflow: hidden; }
+.share .track i { display: block; height: 100%; border-radius: 999px; }
+.share .figure { min-width: 4.5rem; text-align: right; }
+#risk-note:empty { display: none; }
 
 .facts {
   display: grid;
@@ -330,7 +341,20 @@ button.saved .tick { width: 1rem; height: 1rem; margin-right: 0.375rem; vertical
 .facts dt { font-size: 0.875rem; color: var(--muted); }
 .facts > div { display: flex; flex-direction: column; } /* figures line up even when a label wraps */
 .facts dd { margin: auto 0 0; padding-top: 0.125rem; font-size: 1.625rem; font-weight: 300; letter-spacing: -0.02em; }
+.facts .note { margin: 0.125rem 0 0; padding: 0; font-size: 0.8125rem; font-weight: 400; letter-spacing: 0; color: var(--muted); } /* SPY's figure, or what the number means */
+/* Risk and Return: a Return row and a Risk row, a hairline between them. */
+#facts { margin-top: 1rem; }
+.fact-row h3 { margin: 0; font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.fact-row .facts { margin-top: 0.5rem; }
+.fact-row + .fact-row { margin-top: 1.25rem; padding-top: 1.25rem; border-top: 1px solid var(--line); }
 #profile-trading { margin-top: 1.25rem; }
+#duplicates.flag { color: var(--ink); }
+
+/* Rebalancing rules compared: the saved rule's row in ink and bold, with a small tag. */
+.rules thead th:first-child { text-align: left; }
+.rules tbody th { min-width: 12rem; white-space: normal; }
+.rules tr.mine > * { font-weight: 600; color: var(--ink); }
+.rules .tag { display: inline-block; padding: 0 0.5rem; border-radius: 999px; background: var(--wash); font-size: 0.75rem; white-space: nowrap; }
 
 /* Backup and restore of saved portfolios, at the foot of the tab. */
 .backup { margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid var(--line); }
@@ -749,11 +773,19 @@ footer {
 .heat-key i:last-of-type { border-radius: 0 3px 3px 0; }
 .heat-key span { grid-row: 2; grid-column: span 2; text-align: center; }
 
-/* Correlation grid (Creator). */
+/* Correlation grid (Creator): the lower half only, square cells, each holding's colour dot before its ticker. */
+.correlation { width: auto; }
 .correlation th, .correlation td { padding: 0.375rem 0.5rem; border: 2px solid var(--paper); text-align: center; }
+.correlation tbody td { width: 3.5rem; height: 3.5rem; padding: 0; }
+.correlation td.self { color: var(--muted); }
 .correlation thead th { font-weight: 600; color: var(--muted); }
 .correlation tbody th { text-align: left; font-weight: 600; color: var(--ink); }
 .correlation tbody th small { display: block; max-width: 12rem; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 0.75rem; font-weight: 400; color: var(--muted); }
+.correlation .swatch { width: 0.5rem; height: 0.5rem; margin-right: 0.3rem; border-radius: 50%; vertical-align: middle; }
+/* Its colour key: the same orange and blue as the cells (creator.js), strongest at -1 and 1. */
+.corr-key { display: grid; grid-template-columns: 1fr auto 1fr; gap: 0 0.75rem; width: min(100%, 22rem); margin-top: 0.75rem; font-size: 0.75rem; color: var(--muted); }
+.corr-key :last-child { text-align: right; }
+.corr-scale { grid-column: 1 / -1; height: 0.5rem; margin-bottom: 0.25rem; border-radius: 999px; background: linear-gradient(90deg, rgba(235, 104, 52, 0.68), #fff 50%, rgba(42, 120, 214, 0.68)); box-shadow: inset 0 0 0 1px var(--line); }
 
 /* Empty state when nothing is saved yet. */
 .empty { display: flex; align-items: center; gap: 1.5rem; margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--line); color: var(--muted); }

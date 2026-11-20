@@ -214,21 +214,36 @@
 
       <div id="profile" class="panel" hidden>
         <h2 id="profile-title" class="profile-title"></h2>
+        <p id="profile-growth" class="profile-growth"></p>
+        <p id="profile-meta" class="hint"></p>
         <div class="block">
           <h2>Allocation</h2>
           <div id="treemap" class="chart chart-short"></div>
-          <ul id="allocation" class="allocation"></ul>
+          <div class="table-scroll"><table id="allocation" class="allocation"></table></div>
+          <p id="risk-note" class="hint"></p>
         </div>
         <div class="block" id="correlation-block">
           <h2><span data-term="correlation">How the Holdings Move Together</span></h2>
           <p class="hint">Correlation of daily returns over the measured period.</p>
           <div class="table-scroll"><table id="correlation" class="correlation"></table></div>
+          <div class="corr-key">
+            <span class="corr-scale" aria-hidden="true"></span>
+            <span>−1 moves opposite</span><span>0 unrelated</span><span>1 moves together</span>
+          </div>
+          <dl id="diversity" class="facts"></dl>
+          <p id="duplicates" class="hint"></p>
         </div>
         <div class="block">
           <h2>Risk and Return</h2>
           <p id="profile-range" class="hint"></p>
-          <dl id="facts" class="facts"></dl>
+          <div id="facts"></div>
           <p id="profile-trading" class="hint"></p>
+        </div>
+        <div class="block" id="rules-block">
+          <h2><span data-term="rebalancing">Rebalancing Rules Compared</span></h2>
+          <p class="hint">The same holdings over the same dates, under each rule.</p>
+          <div class="table-scroll"><table id="rules" class="rules"></table></div>
+          <p id="rules-note" class="hint"></p>
         </div>
         <div class="block">
           <h2>Sector and Regional Mix</h2>

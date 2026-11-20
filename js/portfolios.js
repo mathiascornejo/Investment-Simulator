@@ -131,3 +131,42 @@ export function portfolioSeries(portfolio, prices) {
     yearlyCost: years >= 1 ? paid / years : null,
   };
 }
+
+// Risk maths at the target weights. `returns` is one list of daily returns per holding, all on the same dates.
+const fractions = (weights) => {
+  const total = weights.reduce((sum, w) => sum + w, 0);
+  return weights.map((w) => w / total);
+};
+// Sample covariance of every pair of holdings.
+function covariances(returns) {
+  const n = returns[0].length;
+  const centred = returns.map((r) => {
+    const mean = r.reduce((sum, x) => sum + x, 0) / n;
+    return r.map((x) => x - mean);
+  });
+  return centred.map((a) => centred.map((b) => a.reduce((sum, x, t) => sum + x * b[t], 0) / (n - 1)));
+}
+// Each holding's covariance with the whole portfolio, (Σw)_i, and the portfolio's variance, wᵀΣw.
+function portfolioRisk(w, cov) {
+  const withPortfolio = cov.map((row) => row.reduce((sum, c, j) => sum + c * w[j], 0));
+  return { withPortfolio, variance: w.reduce((sum, x, i) => sum + x * withPortfolio[i], 0) };
+}
+
+// Each holding's share of the portfolio's ups and downs (its Euler risk contribution): w_i x (Σw)_i / (wᵀΣw).
+// The shares add up to 1. A holding that moves against the rest gets a negative share. NaN if nothing ever moves.
+export function riskShares(weights, returns) {
+  const w = fractions(weights);
+  const { withPortfolio, variance } = portfolioRisk(w, covariances(returns));
+  return w.map((x, i) => (x * withPortfolio[i]) / variance);
+}
+
+// How many equal-sized holdings the weights are worth: 1 / Σw². Ten holdings with one at 90% count as about 1.2.
+export const effectiveHoldings = (weights) => 1 / fractions(weights).reduce((sum, x) => sum + x * x, 0);
+
+// The holdings' volatilities averaged by weight, over the portfolio's volatility. 1 means mixing them calmed nothing.
+export function diversificationRatio(weights, returns) {
+  const w = fractions(weights);
+  const cov = covariances(returns);
+  const { variance } = portfolioRisk(w, cov);
+  return w.reduce((sum, x, i) => sum + x * Math.sqrt(cov[i][i]), 0) / Math.sqrt(variance);
+}

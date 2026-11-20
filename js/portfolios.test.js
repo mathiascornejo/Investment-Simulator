@@ -1,7 +1,7 @@
 // Run with: node --test js/portfolios.test.js
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { portfolioSeries, freeName, readPortfolio } from "./portfolios.js";
+import { portfolioSeries, freeName, readPortfolio, riskShares, effectiveHoldings, diversificationRatio } from "./portfolios.js";
 
 const series = (pairs) => pairs.map(([date, adjClose]) => ({ date, adjClose }));
 const values = (out) => out.points.map((p) => +p.adjClose.toFixed(6));
@@ -80,6 +80,34 @@ test("turnover and cost are not given for less than a year", () => {
   assert.equal(out.yearlyTurnover, null);
   assert.equal(out.yearlyCost, null);
   assert.deepEqual(values(out), [100, 149.75, 112.3125]); // 0.5% of 50 moved
+});
+
+// Daily returns with mean 0. Stocks swing twice as far as bonds, and the two are unrelated (covariance 0).
+const bonds = [0.01, 0.01, -0.01, -0.01];
+const stocks = [0.02, -0.02, 0.02, -0.02];
+const near = (actual, expected) => actual.forEach((x, i) => assert.ok(Math.abs(x - expected[i]) < 1e-12, `${x} vs ${expected[i]}`));
+
+test("risk shares: in a 60/40 mix the swingier, unrelated stocks cause 90% of the ups and downs", () => {
+  // Unrelated, so each share is w²σ² over the total: 0.36 x 4 = 1.44 and 0.16 x 1 = 0.16, out of 1.6.
+  near(riskShares([60, 40], [stocks, bonds]), [0.9, 0.1]);
+  // Holdings that move identically cause exactly their share of the money.
+  near(riskShares([60, 40], [bonds, bonds]), [0.6, 0.4]);
+  // One that moves against the rest calms it, so its share is below zero; the shares still add up to 1.
+  near(riskShares([75, 25], [bonds, bonds.map((r) => -r)]), [1.5, -0.5]);
+  assert.ok(Number.isNaN(riskShares([100], [[0, 0, 0]])[0])); // never moved: nothing to share out
+});
+
+test("effective number of holdings is 1 / sum of squared weights", () => {
+  assert.equal(effectiveHoldings([50, 50]), 2);
+  assert.ok(Math.abs(effectiveHoldings([60, 40]) - 1 / 0.52) < 1e-12);
+  // Ten holdings, one at 90%: 0.81 + 9 x (1/90)² = 73/90, so about 1.2.
+  assert.ok(Math.abs(effectiveHoldings([90, ...Array(9).fill(10 / 9)]) - 90 / 73) < 1e-12);
+});
+
+test("diversification ratio is the weighted volatility over the portfolio's", () => {
+  // σ(stocks) = 2s, σ(bonds) = s: weighted 1.6s. Portfolio σ = s x √(0.36 x 4 + 0.16) = s√1.6. Ratio √1.6.
+  assert.ok(Math.abs(diversificationRatio([60, 40], [stocks, bonds]) - Math.sqrt(1.6)) < 1e-12);
+  assert.ok(Math.abs(diversificationRatio([60, 40], [bonds, bonds]) - 1) < 1e-12); // identical: no benefit
 });
 
 test("free names add (2), (3)... or (copy), (copy 2)... and stay within 40 characters", () => {
