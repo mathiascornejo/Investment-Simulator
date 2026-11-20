@@ -4,3 +4,5 @@
 node_modules/
 # Local tool caches
 .impeccable/
+# Agent worktrees (committing them breaks the GitHub Pages build)
+.claude/worktrees/
