@@ -219,6 +219,8 @@ legend {
 #mc-compare { margin-top: 1.5rem; padding-top: 1.25rem; border-top: 1px solid var(--line); }
 #mc-compare p { margin: 0 0 0.5rem; max-width: 44rem; font-size: 1.125rem; }
 #mc-compare .hint { margin: 0; font-size: 0.875rem; }
+/* The finding a result block opens with (spending, other withdrawal amounts, every real start date), in ink above its chart. */
+.mc-lead { margin: 0; max-width: 44rem; }
 
 .hero {
   display: flex;
@@ -245,6 +247,7 @@ legend {
 #mc-crises thead th:first-child, #mc-crises td[colspan] { text-align: left; }
 #mc-crises tbody th { min-width: 10rem; color: var(--ink); }
 #mc-crises td small, #mc-crises th small { display: block; font-size: 0.875rem; font-weight: 400; color: var(--muted); }
+#mc-crises-note { margin-top: 0.75rem; }
 
 /* Portfolio creator form */
 .field { margin-bottom: 1.5rem; }

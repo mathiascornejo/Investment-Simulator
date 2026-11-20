@@ -290,6 +290,13 @@
             <input type="number" id="mc-growth" value="3" min="0" max="20" step="any" required>
           </div>
           <div>
+            <label for="mc-rule">Withdrawal rule</label>
+            <select id="mc-rule">
+              <option value="fixed" selected>Same amount, rising each year</option>
+              <option value="guardrails">Guardrails</option>
+            </select>
+          </div>
+          <div>
             <label for="mc-contribution">Contribution per year ($)</label>
             <input type="number" id="mc-contribution" value="0" min="0" max="1000000000000" step="any" required>
           </div>
@@ -354,6 +361,14 @@
           <p id="mc-method" class="hint"></p>
         </div>
 
+        <div id="mc-spending-block" class="block" hidden>
+          <h2>Yearly Spending</h2>
+          <p id="mc-spending-lead" class="mc-lead"></p>
+          <ul id="mc-spending-legend" class="legend"></ul>
+          <div id="mc-spending-chart" class="chart chart-short"></div>
+          <p class="hint">What runs withdrew each year under the guardrails. A run that ran out spent only what was left that year, then nothing.</p>
+        </div>
+
         <div class="block">
           <h2>When Runs Ran Out</h2>
           <p id="mc-timing" class="hint"></p>
@@ -361,8 +376,23 @@
         </div>
 
         <div class="block">
+          <h2>Other Withdrawal Amounts</h2>
+          <p id="mc-rates-lead" class="mc-lead"></p>
+          <div id="mc-rates-chart" class="chart chart-short"></div>
+          <p id="mc-rates-hint" class="hint"></p>
+        </div>
+
+        <div class="block">
+          <h2>Every Real Start Date</h2>
+          <p id="mc-starts-lead" class="mc-lead"></p>
+          <div id="mc-starts-chart" class="chart chart-short"></div>
+          <p id="mc-starts-hint" class="hint"></p>
+        </div>
+
+        <div class="block">
           <h2>Past Crises</h2>
           <div class="table-scroll"><table id="mc-crises"></table></div>
+          <p id="mc-crises-note" class="hint" hidden></p>
         </div>
       </div>
     </section>
