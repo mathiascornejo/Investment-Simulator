@@ -88,3 +88,16 @@ test("correlation: in step is 1, mirror image is -1, only shared dates count", (
   close(s.correlation(a, mirror), -1);
   assert.ok(Number.isNaN(s.correlation(a, series([["2019-01-01", 1], ["2019-01-02", 2]]))));
 });
+
+test("percent axes get round, even steps and just enough decimals", () => {
+  // Drawdown to -15.3%: steps of 3 points from -18% to 0, whole numbers.
+  assert.deepEqual(s.niceAxis(-0.153, 0), { min: -0.18, max: 0, interval: 0.03, decimals: 0 });
+  // Returns between 8.1% and 9.3%: 0.2-point steps need one decimal, else labels repeat ("9%, 9%").
+  assert.deepEqual(s.niceAxis(0.081, 0.093), { min: 0.08, max: 0.094, interval: 0.002, decimals: 1 });
+  assert.deepEqual(s.niceAxis(-0.35, 0.42), { min: -0.4, max: 0.6, interval: 0.2, decimals: 0 });
+  assert.equal(s.niceAxis(0.0001, 0.0009).decimals, 2); // 0.02-point steps
+  // A flat series (cash) still gets a usable axis around its value.
+  assert.deepEqual(s.niceAxis(0, 0), { min: -0.01, max: 0.01, interval: 0.005, decimals: 1 });
+  // Two values equal but for rounding noise count as flat, not as a near-zero step.
+  assert.deepEqual(s.niceAxis(0.1, 0.1 + 1e-16), { min: 0.09, max: 0.11, interval: 0.005, decimals: 1 });
+});

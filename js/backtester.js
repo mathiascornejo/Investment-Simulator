@@ -2,9 +2,10 @@
 // All maths lives in stats.js; this file is fetching, state and drawing.
 import { fetchPrices } from "./data.js";
 import { attachTickerSearch } from "./ticker-search.js";
-import { windowOf, summarize, drawdowns, periodReturns } from "./stats.js";
+import { windowOf, summarize, drawdowns, periodReturns, niceAxis } from "./stats.js";
 import { loadPortfolios, portfolioSeries } from "./portfolios.js";
-import { pct, num, money, moneyCompact, longDate, monthLabel, show, element } from "./format.js";
+import { CRISES } from "./montecarlo.js";
+import { pct, num, money, moneyCompact, moneyFit, longDate, monthLabel, show, element } from "./format.js";
 import { glyph, assetClass, countUp } from "./visuals.js";
 import { term } from "./glossary.js";
 
@@ -18,6 +19,7 @@ const INK = "#1a1a1a";
 const MUTED = "#66665f";
 const GRID = "#ecece7";
 const AXIS = "#cfcfc8";
+const WASH = "#f0f0ec"; // --wash in styles.css (ECharts can't read CSS variables)
 
 const $ = (id) => document.getElementById(id);
 const form = $("compare-form");
@@ -87,6 +89,12 @@ let charts; // created on first draw, once the containers are visible and have a
 
 // Formatting (the shared formatters live in format.js; these are only for chart axes)
 const pctAxis = new Intl.NumberFormat(undefined, { style: "percent", maximumFractionDigits: 0, signDisplay: "negative" });
+const pctPin = new Intl.NumberFormat(undefined, { style: "percent", maximumSignificantDigits: 2, signDisplay: "negative" }); // -15%, -2.3%
+const ruler = document.createElement("canvas").getContext("2d");
+const textWidth = (text, size, weight = 400) => {
+  ruler.font = `${weight} ${size}px ${getComputedStyle(document.body).fontFamily}`;
+  return ruler.measureText(text).width;
+};
 const escapeHtml = (text) => text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`); // portfolio names are typed by the user
 
 const METRICS = [
@@ -261,12 +269,25 @@ function setSpan(start, end) {
   if (state.series.some((s) => windowOf(s.points, state.start, state.end).points.length < 3)) Object.assign(state, { start: from, end: to }); // too few points: keep the old range
   else requestAnimationFrame(draw);
 }
+// While the wheel is scrolling the page, a chart passing under the pointer lets it carry on scrolling;
+// zooming starts once the wheel has been still for 400 ms with the pointer on the chart.
+let pageWheelAt = -Infinity;
+addEventListener("wheel", (event) => { if (!event.defaultPrevented) pageWheelAt = event.timeStamp; }, { passive: true });
+let zoomTipShown = false; // "Scroll to zoom" shows once per visit, on the first mouse hover over either chart
 for (const id of ["growth-chart", "drawdown-chart"]) {
   const box = $(id);
   const chart = () => charts?.[id.split("-")[0]];
   const msAt = (event) => chart().convertFromPixel({ xAxisIndex: 0 }, event.offsetX);
+  box.addEventListener("pointerenter", (event) => {
+    if (zoomTipShown || event.pointerType !== "mouse" || !chart()) return;
+    zoomTipShown = true;
+    const tip = Object.assign(element("span", "Scroll to zoom"), { className: "zoom-tip" });
+    tip.setAttribute("aria-hidden", "true"); // the hint above the chart says the same in words
+    box.append(tip);
+    setTimeout(() => tip.remove(), 4000);
+  });
   box.addEventListener("wheel", (event) => {
-    if (!chart() || !state.start) return;
+    if (!chart() || !state.start || event.timeStamp - pageWheelAt < 400) return;
     event.preventDefault();
     const [start, end] = [Date.parse(state.start), Date.parse(state.end)];
     // Like TradingView: while the latest date is showing, it stays put and the left side moves.
@@ -329,9 +350,10 @@ function draw() {
     addEventListener("resize", resize);
     addEventListener("hashchange", resize); // the tab may have been hidden while the window changed size
   }
-  drawGrowth(windows);
+  const grid = timeGrid(windows);
+  drawGrowth(windows, grid);
   drawReturns(windows);
-  drawDrawdowns(windows);
+  drawDrawdowns(windows, grid);
   drawScatter(windows, stats);
 }
 
@@ -420,47 +442,127 @@ function resample(pairs) {
   return [...last].map(([date, value]) => [Date.parse(date), value]);
 }
 
-function drawGrowth(windows) {
+// The label at the end of a growth line: its name (shortened if long, more so on narrow screens) and what $10,000 became.
+function endText(w) {
+  const name = w.label.replace(/[{}]/g, ""); // braces would be read as ECharts rich-text markup
+  const most = charts.growth.getWidth() < 560 ? 8 : 18;
+  const value = moneyFit.format((START_VALUE * w.points.at(-1).adjClose) / w.points[0].adjClose);
+  return `${name.length > most ? `${name.slice(0, most - 1)}…` : name} ${value}`;
+}
+
+// One fixed plot area for the growth and drawdown charts, so their date axes line up exactly under the
+// shared crosshair. The right margin fits the widest end label on the growth chart.
+function timeGrid(windows) {
+  const widest = Math.max(...windows.map((w) => textWidth(endText(w), 12, 600)));
+  return { left: 64, right: Math.ceil(widest) + 28, top: 12, bottom: 28 };
+}
+
+// A percent value axis from lo to hi with round, even steps and labels that never repeat.
+function percentAxis(axis, lo, hi) {
+  const { min, max, interval, decimals } = niceAxis(lo, hi);
+  const label = new Intl.NumberFormat(undefined, { style: "percent", minimumFractionDigits: decimals, maximumFractionDigits: decimals, signDisplay: "negative" });
+  return { ...axis, type: "value", min, max, interval, axisLabel: { ...axis.axisLabel, formatter: (v) => label.format(v) } };
+}
+
+// Past market crashes (the S&P 500's peak-to-trough dates) as faint bands behind the lines, cut to the
+// dates on show. Each caption is the crash's name if it fits inside its band, else its first word ("2008").
+function crisisBands(chart, grid, data) {
+  const first = Math.min(...data.map((d) => d[0][0]));
+  const last = Math.max(...data.map((d) => d.at(-1)[0]));
+  const pxPerMs = (chart.getWidth() - grid.left - grid.right) / (last - first);
+  return {
+    silent: true,
+    itemStyle: { color: WASH },
+    label: { position: "insideTop", color: MUTED, fontSize: 11 },
+    data: CRISES.map((c) => [Math.max(Date.parse(c.start), first), Math.min(Date.parse(c.end), last), c.name])
+      .filter(([from, to]) => from < to)
+      .map(([from, to, name]) => [{ name: textWidth(name, 11) + 8 <= (to - from) * pxPerMs ? name : name.split(" ")[0], xAxis: from }, { xAxis: to }]),
+  };
+}
+
+function drawGrowth(windows, grid) {
   const base = frame(longDate, money);
   const data = windows.map((w) => resample(w.points.map((p) => [p.date, (START_VALUE * p.adjClose) / w.points[0].adjClose])));
   const axisLabel = { ...base.yAxis.axisLabel, formatter: (v) => moneyCompact.format(v) };
-  let yAxis = { ...base.yAxis, type: "value", scale: true, axisLabel };
+  // $10,000 always stays on the axis (a weekly or monthly step can skip the first day), so the start line shows.
+  let yAxis = { ...base.yAxis, type: "value", scale: true, axisLabel, min: (v) => (v.min > START_VALUE ? START_VALUE : null), max: (v) => (v.max < START_VALUE ? START_VALUE : null) };
   if (state.log) {
     const values = data.flat().map(([, v]) => v);
-    const min = values.reduce((a, b) => Math.min(a, b));
-    const max = values.reduce((a, b) => Math.max(a, b));
+    const min = values.reduce((a, b) => Math.min(a, b), START_VALUE);
+    const max = values.reduce((a, b) => Math.max(a, b), START_VALUE);
     const customValues = logTicks(min, max);
     yAxis = { ...base.yAxis, type: "log", min, max, axisTick: { show: false, customValues }, axisLabel: { ...axisLabel, customValues, hideOverlap: true } };
   }
+  const startLine = {
+    silent: true,
+    symbol: "none",
+    lineStyle: { color: MUTED, type: "dashed", width: 1, opacity: 0.6 },
+    label: { position: "insideEndTop", formatter: `Start ${money.format(START_VALUE)}`, color: MUTED, fontSize: 11 },
+    data: [{ yAxis: START_VALUE }],
+  };
   charts.growth.setOption(
-    { ...base, xAxis: { ...base.xAxis, type: "time" }, yAxis, series: windows.map((w, i) => line(w, data[i])) },
+    {
+      ...base,
+      grid,
+      xAxis: { ...base.xAxis, type: "time" },
+      yAxis,
+      series: windows.map((w, i) => line(w, data[i], {
+        // Name and final value at the line's end, in ink with a dot of the line's colour; close ones are nudged apart.
+        endLabel: { show: true, formatter: `{dot|} ${endText(w)}`, color: INK, fontSize: 12, fontWeight: 600, rich: { dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: w.color } } },
+        labelLayout: { moveOverlap: "shiftY" },
+        ...(i === 0 && { markLine: startLine, markArea: crisisBands(charts.growth, grid, data) }),
+      })),
+    },
     true,
   );
 }
 
-function drawDrawdowns(windows) {
+function drawDrawdowns(windows, grid) {
   const base = frame(longDate, pct);
+  const dds = windows.map((w) => drawdowns(w.points));
+  const data = dds.map((dd) => resample(dd.map((d) => [d.date, d.value])));
+  const deepest = dds.map((dd) => dd.reduce((a, b) => (b.value < a.value ? b : a)));
+  const first = Math.min(...data.map((d) => d[0][0]));
+  const last = Math.max(...data.map((d) => d.at(-1)[0]));
+  // Each line's deepest point, pinned with how deep and when. Near either edge the label runs inward,
+  // and labels that would overlap are moved apart.
+  const pins = {
+    name: "Deepest point",
+    type: "scatter",
+    silent: true,
+    tooltip: { show: false }, // keeps the pins out of the shared date tooltip
+    z: 3,
+    symbolSize: 9,
+    label: { show: true, position: "bottom", color: INK, fontSize: 11, fontWeight: 600 },
+    labelLayout: { moveOverlap: "shiftY" },
+    data: windows.flatMap((w, i) => {
+      const { date, value } = deepest[i];
+      if (value >= 0) return [];
+      const at = (Date.parse(date) - first) / (last - first);
+      return [{
+        value: [Date.parse(date), value],
+        itemStyle: { color: "#fff", borderColor: w.color, borderWidth: 2 },
+        label: { formatter: `${pctPin.format(value)} · ${monthLabel(date.slice(0, 7))}`, align: at > 0.9 ? "right" : at < 0.1 ? "left" : "center" },
+      }];
+    }),
+  };
   charts.drawdown.setOption(
     {
       ...base,
-      xAxis: { ...base.xAxis, type: "time" },
-      yAxis: { ...base.yAxis, type: "value", max: 0, axisLabel: { ...base.yAxis.axisLabel, formatter: (v) => pctAxis.format(v) } },
-      series: windows.map((w) => {
-        const dd = drawdowns(w.points);
-        const deepest = dd.reduce((a, b) => (b.value < a.value ? b : a));
-        return line(w, resample(dd.map((d) => [d.date, d.value])), {
+      grid,
+      // Dates along the bottom, as on the growth chart (left on zero, they would sit at the top).
+      xAxis: { ...base.xAxis, type: "time", axisLine: { ...base.xAxis.axisLine, onZero: false } },
+      // Some room under the deepest pin for its label.
+      yAxis: percentAxis(base.yAxis, Math.min(-0.01, ...deepest.map((d) => d.value * 1.15)), 0),
+      series: [
+        ...windows.map((w, i) => line(w, data[i], {
           lineStyle: { width: 1.5, color: w.color },
           // Underwater: the deeper below the previous high, the stronger the colour.
           areaStyle: { color: { type: "linear", x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: `${w.color}0d` }, { offset: 1, color: `${w.color}66` }] } },
-          markPoint: deepest.value < 0 ? {
-            symbol: "circle",
-            symbolSize: 9,
-            itemStyle: { color: "#fff", borderColor: w.color, borderWidth: 2 },
-            label: { position: "bottom", color: INK, fontSize: 11, fontWeight: 600, formatter: () => pctAxis.format(deepest.value) },
-            data: [{ coord: [Date.parse(deepest.date), deepest.value] }],
-          } : undefined,
-        });
-      }),
+          ...(i === 0 && { markArea: crisisBands(charts.drawdown, grid, data) }),
+        })),
+        pins,
+      ],
     },
     true,
   );
@@ -471,6 +573,8 @@ function drawReturns(windows) {
   const periods = [...new Set(byPeriod.flatMap((m) => [...m.keys()]))].sort();
   const isPartial = (key) => byPeriod.some((m) => m.get(key)?.partial);
   const label = (key) => (state.keyLength === 4 ? key : monthLabel(key));
+  const values = byPeriod.flatMap((m) => [...m.values()].map((p) => p.value));
+  const [lo, hi] = [Math.min(0, ...values), Math.max(0, ...values)];
 
   const base = frame((key) => label(key) + (isPartial(key) ? " (partial)" : ""), pct, "shadow");
   charts.returns.setOption(
@@ -478,7 +582,7 @@ function drawReturns(windows) {
       ...base,
       // Axis at the bottom edge (not on zero) so negative bars never cover the labels; headroom on the value axis keeps Best/Worst badges inside the chart.
       xAxis: { ...base.xAxis, type: "category", data: periods, axisLine: { ...base.xAxis.axisLine, onZero: false }, axisLabel: { ...base.xAxis.axisLabel, formatter: label, margin: 10, hideOverlap: true } },
-      yAxis: { ...base.yAxis, type: "value", boundaryGap: [0.12, 0.12], axisLabel: { ...base.yAxis.axisLabel, formatter: (v) => pctAxis.format(v) } },
+      yAxis: percentAxis(base.yAxis, lo < 0 ? lo - 0.12 * (hi - lo) : 0, hi > 0 ? hi + 0.12 * (hi - lo) : 0),
       series: windows.map((w, i) => ({
         name: w.label,
         type: "bar",
@@ -487,6 +591,8 @@ function drawReturns(windows) {
         itemStyle: { color: w.color },
         emphasis: { disabled: true },
         markPoint: badges(byPeriod[i], windows.length, i),
+        // A firm ink line at 0% splits gains from losses; the other gridlines stay faint.
+        markLine: i === 0 ? { silent: true, symbol: "none", label: { show: false }, lineStyle: { color: INK, width: 1, type: "solid" }, data: [{ yAxis: 0 }] } : undefined,
         data: periods.map((key) => {
           const p = byPeriod[i].get(key);
           if (!p) return null;
@@ -585,33 +691,95 @@ function drawHeatmap(windows) {
   $("heatmap").setAttribute("aria-label", `Monthly returns of ${w.label}`);
 }
 
-// Volatility across, return up: one dot per line, coloured like its line.
+// Volatility across, return up: one dot per line, coloured like its line. The S&P 500 (SPY) is a hollow
+// ring whose dashed cross splits the chart into four corners, so every dot reads against the market.
 function drawScatter(windows, stats) {
-  const annual = stats.every((s) => s.cagr !== null);
+  const spyWindow = windowOf(state.benchmark, state.start, state.end);
+  // SPY only when it covers the whole period (a few days' slack for holidays), never a shorter stretch.
+  const covers = spyWindow.points.length > 2 && Date.parse(spyWindow.points[0].date) - Date.parse(state.start) <= 7 * DAY && Date.parse(state.end) - Date.parse(spyWindow.points.at(-1).date) <= 7 * DAY;
+  const compared = windows.some((w) => w.label === BENCHMARK);
+  const spy = covers && !compared ? summarize(spyWindow.points, state.benchmark, spyWindow.nextDate) : null;
+  const annual = (spy ? [...stats, spy] : stats).every((s) => s.cagr !== null);
   const yName = annual ? "Annualised return" : "Total return";
-  $("scatter-note").textContent = `Each dot is one compared asset: further right swings more, higher ${annual ? "grew faster per year" : "gained more over the period (it is under a year, so returns are not annualised)"}.`;
+  const missing = compared ? "" : !state.benchmark.length ? " The S&P 500 (SPY) didn't load, so it isn't shown." : !spy ? " The S&P 500 (SPY) has no prices for part of this period, so it isn't shown." : "";
+  $("scatter-note").textContent = `Each dot is one compared asset: further right swings more, higher ${annual ? "grew faster per year" : "gained more over the period (it is under a year, so returns are not annualised)"}.${spy ? " The ring is the S&P 500 (SPY) over the same dates. Its dashed lines split the chart into four corners that say how each dot did against it." : missing}`;
+
+  const point = (s) => [s.volatility, annual ? s.cagr : s.totalReturn];
+  const dots = stats.map(point);
+  const ref = spy && point(spy);
+  const all = ref ? [...dots, ref] : dots;
+  const belowZero = all.some(([, y]) => y < 0);
+  // About 15% of the range as room on every side, so no dot sits on the frame. Volatility can't go below 0.
+  const padded = (values) => {
+    const [lo, hi] = [Math.min(...values), Math.max(...values)];
+    return [lo - 0.15 * (hi - lo), hi + 0.15 * (hi - lo)];
+  };
+  const [xLo, xHi] = padded(all.map(([x]) => x));
+  const [yLo, yHi] = padded([...all.map(([, y]) => y), ...(belowZero ? [0] : [])]);
   const base = frame(String, pct);
-  const axis = (name) => ({ name, nameLocation: "end", nameTextStyle: { color: MUTED, fontSize: 12 }, type: "value", scale: true, axisLabel: { ...base.yAxis.axisLabel, formatter: (v) => pctAxis.format(v) } });
+  const axisName = { nameLocation: "middle", nameTextStyle: { color: MUTED, fontSize: 12 } };
+  // The volatility axis stays at the bottom edge even when 0% return is inside the chart.
+  const xAxis = { ...percentAxis(base.xAxis, Math.max(0, xLo), Math.max(xHi, 0.01)), ...axisName, name: "Volatility", nameGap: 30, axisLine: { ...base.xAxis.axisLine, onZero: false } };
+  const yAxis = percentAxis(base.yAxis, yLo, yHi);
+  // The y axis name sits just clear of the widest tick label (the widest is always at one end).
+  const labelWidth = Math.max(...[yAxis.min, yAxis.max].map((v) => textWidth(yAxis.axisLabel.formatter(v), 12)));
+  Object.assign(yAxis, axisName, { name: yName, nameGap: Math.ceil(labelWidth) + 18 });
+  // Names go left of dots in the right part of the chart, so they never run off the edge.
+  const side = (x) => ((x - xAxis.min) / (xAxis.max - xAxis.min) > 0.6 ? "left" : "right");
+  // shortcut: moveOverlap only shifts up or down, so two names at one height but far apart still get nudged; a per-label placer would fix that if it looks off.
+  const labelLayout = { moveOverlap: "shiftY" };
+  const dashed = { color: MUTED, type: "dashed", width: 1, opacity: 0.6 };
+
+  const corner = (x0, x1, y0, y1, text, position) => [{ name: text, xAxis: x0, yAxis: y0, label: { position } }, { xAxis: x1, yAxis: y1 }];
+  const reference = ref && {
+    name: "S&P 500 (SPY)",
+    type: "scatter",
+    symbolSize: 16, // drawn first and a little bigger, so a dot on the same spot (VOO) sits inside the ring
+    itemStyle: { color: "#fff", borderColor: INK, borderWidth: 2 },
+    label: { show: true, position: side(ref[0]), formatter: "{a}", color: INK },
+    labelLayout,
+    emphasis: { scale: 1.2 },
+    markLine: { silent: true, symbol: "none", label: { show: false }, lineStyle: dashed, data: [{ xAxis: ref[0] }, { yAxis: ref[1] }] },
+    // Corner captions, left out on narrow charts where they would run into each other.
+    markArea: charts.scatter.getWidth() < 480 ? undefined : {
+      silent: true,
+      itemStyle: { color: "transparent" },
+      label: { color: MUTED, fontSize: 11 },
+      data: [
+        corner(xAxis.min, ref[0], ref[1], yAxis.max, "Swung less, grew more", "insideTopLeft"),
+        corner(ref[0], xAxis.max, ref[1], yAxis.max, "Swung more, grew more", "insideTopRight"),
+        corner(xAxis.min, ref[0], yAxis.min, ref[1], "Swung less, grew less", "insideBottomLeft"),
+        corner(ref[0], xAxis.max, yAxis.min, ref[1], "Swung more, grew less", "insideBottomRight"),
+      ],
+    },
+    data: [ref],
+  };
   charts.scatter.setOption(
     {
       ...base,
-      grid: { left: 8, right: 80, top: 28, bottom: 8, containLabel: true },
+      grid: { left: yAxis.nameGap + 20, right: 24, top: 16, bottom: 52 },
       tooltip: {
         ...base.tooltip,
         trigger: "item",
         formatter: (item) => `<strong>${escapeHtml(item.seriesName)}</strong><div>Volatility ${pct.format(item.value[0])}</div><div>${yName} ${pct.format(item.value[1])}</div>`,
       },
-      xAxis: { ...base.xAxis, ...axis("Volatility") },
-      yAxis: { ...base.yAxis, ...axis(yName) },
-      series: windows.map((w, i) => ({
-        name: w.label,
-        type: "scatter",
-        symbolSize: 14,
-        itemStyle: { color: w.color, borderColor: "#fff", borderWidth: 2 },
-        label: { show: true, position: "right", formatter: "{a}", color: INK, fontWeight: 600 },
-        emphasis: { scale: 1.2 },
-        data: [[stats[i].volatility, annual ? stats[i].cagr : stats[i].totalReturn]],
-      })),
+      xAxis,
+      yAxis,
+      series: [
+        ...(reference ? [reference] : []),
+        ...windows.map((w, i) => ({
+          name: w.label,
+          type: "scatter",
+          symbolSize: 14,
+          itemStyle: { color: w.color, borderColor: "#fff", borderWidth: 2 },
+          label: { show: true, position: side(dots[i][0]), formatter: "{a}", color: INK, fontWeight: 600 },
+          labelLayout,
+          emphasis: { scale: 1.2 },
+          // A dashed 0% line when any return is a loss, so above and below zero is plain to see.
+          markLine: i === 0 && belowZero ? { silent: true, symbol: "none", label: { show: false }, lineStyle: dashed, data: [{ yAxis: 0 }] } : undefined,
+          data: [dots[i]],
+        })),
+      ],
     },
     true,
   );

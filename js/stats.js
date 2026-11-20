@@ -95,6 +95,23 @@ export function periodReturns(points, keyLength, nextDate) {
   return out;
 }
 
+// Round, evenly spaced ticks for a percent axis covering lo to hi (fractions: 0.05 is 5%). Steps are 1, 2, 3
+// or 5 times a power of ten, as ECharts picks them; `decimals` is what a label needs so no two ticks read alike.
+export function niceAxis(lo, hi, splitNumber = 5) {
+  // A flat line, or values equal but for rounding noise (a 100% SPY portfolio next to SPY), still gets an axis.
+  if (!(hi - lo > 1e-6)) [lo, hi] = [lo - 0.01, hi + 0.01];
+  const raw = (hi - lo) / splitNumber;
+  const power = 10 ** Math.floor(Math.log10(raw));
+  const f = raw / power;
+  const tidy = (x) => +x.toFixed(12); // drops floating-point dust such as 0.30000000000000004
+  const interval = tidy((f < 1.5 ? 1 : f < 2.5 ? 2 : f < 4 ? 3 : f < 7 ? 5 : 10) * power);
+  const min = tidy(Math.floor(lo / interval + 1e-9) * interval);
+  const max = tidy(Math.ceil(hi / interval - 1e-9) * interval);
+  // The step in percentage points is 1, 2, 3 or 5 times a power of ten: 0.2 points needs one decimal, 0.05 two.
+  const decimals = Math.max(0, -Math.floor(Math.log10(interval * 100) + 1e-9));
+  return { min, max, interval, decimals };
+}
+
 // Every headline number for one series over one window.
 export function summarize(points, benchmark, nextDate, startValue = 10000) {
   const returns = dailyReturns(points);

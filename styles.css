@@ -499,6 +499,11 @@ button:disabled {
 .chart { height: 18rem; margin-top: 0.75rem; }
 .chart-tall { height: 23rem; }
 .chart-short { height: 14rem; }
+/* "Scroll to zoom": shown once, on the first mouse hover over the growth or drawdown chart, then fades (js/backtester.js). */
+#growth-chart, #drawdown-chart { position: relative; }
+.zoom-tip { position: absolute; z-index: 1; top: 0.5rem; left: 50%; translate: -50% 0; padding: 0.25rem 0.625rem; border-radius: 999px; background: var(--ink); color: #fff; font-size: 0.75rem; pointer-events: none; animation: zoom-tip 4s both; }
+@keyframes zoom-tip { 0% { opacity: 0; } 8%, 80% { opacity: 1; } 100% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .zoom-tip { animation: none; } }
 
 /* Statistics table */
 .table-scroll { overflow-x: auto; margin-top: 0.75rem; }
