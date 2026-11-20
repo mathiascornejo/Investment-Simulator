@@ -2,9 +2,10 @@
 // All maths lives in stats.js; this file is fetching, state and drawing.
 import { fetchPrices } from "./data.js";
 import { attachTickerSearch } from "./ticker-search.js";
-import { windowOf, summarize, drawdowns, periodReturns, niceAxis } from "./stats.js";
+import { windowOf, summarize, drawdowns, periodReturns, niceAxis, gapRange } from "./stats.js";
 import { loadPortfolios, portfolioSeries } from "./portfolios.js";
 import { CRISES } from "./montecarlo.js";
+import { TBILLS } from "./tbills.js";
 import { pct, num, money, moneyCompact, moneyFit, longDate, monthLabel, show, element } from "./format.js";
 import { glyph, assetClass, countUp } from "./visuals.js";
 import { term } from "./glossary.js";
@@ -97,26 +98,32 @@ const textWidth = (text, size, weight = 400) => {
 };
 const escapeHtml = (text) => text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`); // portfolio names are typed by the user
 
-const METRICS = [
-  ["Total return", "totalReturn", pct],
-  ["Annualised return", "cagr", pct],
-  ["Volatility (annualised)", "volatility", pct],
-  ["Maximum drawdown", "maxDrawdown", pct],
-  ["Best year", "bestYear", pct],
-  ["Worst year", "worstYear", pct],
-  ["Sharpe ratio", "sharpe", num],
-  ["Sortino ratio", "sortino", num],
-  [`Beta vs ${BENCHMARK}`, "beta", num],
-  ["$10,000 became", "finalValue", money],
+// Statistics table rows, in labelled groups: [label, key, format, better, why it can be missing].
+// better: 1 when higher is better, -1 when lower is (volatility), 0 when neither is (beta).
+const GROUPS = [
+  ["Growth", [
+    ["Total return", "totalReturn", pct, 1],
+    ["Annualised return", "cagr", pct, 1, "Needs at least one year"],
+    ["$10,000 became", "finalValue", money, 1],
+  ]],
+  ["Ups and downs", [
+    ["Volatility (annualised)", "volatility", pct, -1],
+    ["Maximum drawdown", "maxDrawdown", pct, 1],
+    ["Best year", "bestYear", pct, 1, "Needs at least one full calendar year"],
+    ["Worst year", "worstYear", pct, 1, "Needs at least one full calendar year"],
+  ]],
+  ["Reward for the risk", [
+    ["Sharpe ratio", "sharpe", num, 1],
+    ["Sortino ratio", "sortino", num, 1],
+  ]],
+  ["Compared with the market", [
+    [`Beta vs ${BENCHMARK}`, "beta", num, 0],
+  ]],
 ];
 
-function showDifference(a, b, format) {
-  if (!Number.isFinite(a) || !Number.isFinite(b)) return "–";
-  const d = a - b;
-  const sign = d > 0 ? "+" : "";
-  // A gap between two percentages is in percentage points, not percent.
-  return format === pct ? `${sign}${num.format(d * 100)} pts` : `${sign}${format.format(d)}`;
-}
+// "+$920", "-$80", "$0": a plus only when the figure doesn't round to zero.
+const withSign = (value, format) => (value > 0 && format.format(value) !== format.format(0) ? "+" : "") + format.format(value);
+const hiddenText = (text) => Object.assign(element("span", text), { className: "visually-hidden" });
 
 function say(text, isError = false) {
   status.textContent = text;
@@ -209,6 +216,7 @@ form.addEventListener("submit", async (event) => {
     return;
   }
   applyPreset("12"); // 1 year is the default period
+  drawDataNotes(lines, latestStarter);
 
   say(problems.join(" "), problems.length > 0);
   $("results").hidden = false;
@@ -337,6 +345,7 @@ function draw() {
   const stats = windows.map((w) => summarize(w.points, state.benchmark, w.nextDate, START_VALUE));
   drawTable(windows, stats);
   drawSummary(windows, stats);
+  drawGapNote(windows);
   drawHeatmap(windows);
 
   if (!window.echarts) {
@@ -365,17 +374,89 @@ function swatch(color) {
 }
 
 function drawTable(windows, stats) {
+  const pair = windows.length === 2;
+  const columns = windows.length + (pair ? 1 : 0);
   const columnHeads = windows.map((w) => Object.assign(element("th", swatch(w.color), w.label), { scope: "col" }));
-  if (windows.length === 2) {
-    columnHeads.push(Object.assign(element("th", `${windows[0].label} − ${windows[1].label}`), { scope: "col" }));
-  }
+  if (pair) columnHeads.push(Object.assign(element("th", "Gap"), { scope: "col", title: "How far ahead the better of the two is. The colour shows which one." }));
 
-  const rows = METRICS.map(([label, key, format]) => {
-    const cells = stats.map((s) => element("td", show(s[key], format)));
-    if (windows.length === 2) cells.push(element("td", showDifference(stats[0][key], stats[1][key], format)));
-    return element("tr", Object.assign(element("th", term(label)), { scope: "row" }), ...cells);
+  const groups = GROUPS.map(([name, metrics]) => element(
+    "tbody",
+    Object.assign(element("tr", Object.assign(element("th", name), { scope: "rowgroup" }), Object.assign(element("td"), { colSpan: columns })), { className: "group" }),
+    ...metrics.map(([label, key, format, better, why]) => {
+      const head = Object.assign(element("th", term(label)), { scope: "row" });
+      const values = stats.map((s) => s[key]);
+      // A row no line can fill (under a year, say) gets one note across the columns instead of a row of dashes.
+      if (why && !values.some(Number.isFinite)) {
+        return Object.assign(element("tr", head, Object.assign(element("td", why), { colSpan: columns, className: "why" })), { className: "na" });
+      }
+      const best = bestIndex(values, format, better);
+      const cells = values.map((v, i) => (i === best
+        ? Object.assign(element("td", show(v, format), hiddenText(" (best)")), { className: "best" })
+        : element("td", show(v, format))));
+      if (pair) cells.push(gapCell(windows, values, format, better));
+      return element("tr", head, ...cells);
+    }),
+  ));
+  $("stats").replaceChildren(element("thead", element("tr", element("td"), ...columnHeads)), ...groups);
+}
+
+// The column with the best figure in a row, or -1: never for beta (better = 0), for ties as shown, or under two figures.
+function bestIndex(values, format, better) {
+  const figures = values.filter(Number.isFinite);
+  if (!better || figures.length < 2) return -1;
+  const top = better > 0 ? Math.max(...figures) : Math.min(...figures);
+  return figures.filter((v) => format.format(v) === format.format(top)).length > 1 ? -1 : values.indexOf(top);
+}
+
+// Two lines: the colour of the one ahead on this row, then the size of the gap (never a signed subtraction).
+function gapCell(windows, [a, b], format, better) {
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return element("td", "–");
+  // A gap between two percentages is in percentage points, not percent.
+  const size = format === pct ? `${num.format(Math.abs(a - b) * 100)} pts` : format.format(Math.abs(a - b));
+  if (!better || format.format(a) === format.format(b)) return element("td", size); // beta, or level: nobody is ahead
+  const ahead = windows[(a - b) * better > 0 ? 0 : 1];
+  return Object.assign(element("td", swatch(ahead.color), hiddenText(`${ahead.label} ahead by `), size), { className: "gap", title: `${ahead.label} is ahead by ${size}` });
+}
+
+// Price currency by market suffix (nothing is converted). Plain tickers are US listings.
+const CURRENCY = { L: "British pence", PS: "Philippine pesos", T: "Japanese yen", TO: "Canadian dollars", AX: "Australian dollars", HK: "Hong Kong dollars", SW: "Swiss francs", DE: "euros", PA: "euros", AS: "euros", MI: "euros", KS: "Korean won", NS: "Indian rupees", SI: "Singapore dollars" };
+function currencyOf(ticker) {
+  if (ticker === "CASH") return null; // no prices to speak of: it earns nothing
+  if (ticker in TBILLS) return "Philippine pesos";
+  const suffix = ticker.split(".")[1];
+  return suffix ? CURRENCY[suffix] ?? `the local currency of the .${suffix} market` : "US dollars";
+}
+const listed = (tickers) => `${tickers.join(" and ")} ${tickers.length > 1 ? "are" : "is"}`;
+
+// About the data, under the table: each line's first and last price, its currency and what its prices leave out,
+// and which line limits the dates the comparison can cover. Built once per load: it doesn't depend on the period on show.
+function drawDataNotes(lines, latestStarter) {
+  const tickersOf = (s) => lines.find((l) => l.label === s.label).tickers;
+  const notes = state.series.map((s) => {
+    const tickers = tickersOf(s);
+    const currencies = [...new Set(tickers.map(currencyOf).filter(Boolean))];
+    const raw = tickers.filter((t) => t.endsWith(".PS"));
+    const bills = tickers.filter((t) => t in TBILLS);
+    const parts = [`prices from ${longDate(s.points[0].date)} to ${longDate(s.points.at(-1).date)}${tickers.length > 1 ? ", the dates all its holdings have" : ""}.`];
+    if (currencies.length === 1) parts.push(`Priced in ${currencies[0]}.`);
+    if (currencies.length > 1) parts.push(`Its holdings are priced in ${currencies.join(" and ")}, each left in its own currency.`);
+    if (tickers.includes("CASH")) parts.push("Cash earns no interest.");
+    if (bills.length) parts.push(`${listed(bills)} built from benchmark yields, earning the yield each day and ignoring price moves.`);
+    if (raw.length) parts.push(`${listed(raw)} priced without dividends or splits, so returns understate what holders earned, and a split shows as a sudden fall.`);
+    else if (tickers.some((t) => currencyOf(t) && !(t in TBILLS))) parts.push("Dividends are reinvested.");
+    return element("li", swatch(s.color), element("strong", s.label), `: ${parts.join(" ")}`);
   });
-  $("stats").replaceChildren(element("thead", element("tr", element("td"), ...columnHeads)), element("tbody", ...rows));
+  if (state.series.some((s) => s.points[0].date < state.min)) {
+    notes.push(element("li", `The earliest the comparison can start is ${longDate(state.min)}, because ${latestStarter.label}'s prices start then.`));
+  }
+  const ender = state.series.find((s) => s.points.at(-1).date === state.max);
+  if (state.series.some((s) => s.points.at(-1).date > state.max)) {
+    notes.push(element("li", `The latest it can end is ${longDate(state.max)}, because ${ender.label}'s prices stop then.`));
+  }
+  if (new Set(state.series.flatMap((s) => tickersOf(s).map(currencyOf).filter(Boolean))).size > 1) {
+    notes.push(element("li", "Not everything here is in the same currency. Each return is in its own currency, and exchange-rate moves are left out."));
+  }
+  $("data-notes").replaceChildren(...notes);
 }
 
 // Options shared by all three charts. Tooltip text comes from tickers (validated A-Z, 0-9, dash)
@@ -640,7 +721,8 @@ function badges(periods, lineCount, index) {
 // Headline figures per line. Exactly two lines become a head-to-head, with the better value in each row marked.
 function drawSummary(windows, stats) {
   const rows = [
-    ["Annualised return", "cagr", pct, 1],
+    // Under a year nothing is annualised, so the first row shows the plain total return rather than a dash.
+    stats.every((s) => s.cagr !== null) ? ["Annualised return", "cagr", pct, 1] : ["Total return", "totalReturn", pct, 1],
     ["Volatility (annualised)", "volatility", pct, -1],
     ["Maximum drawdown", "maxDrawdown", pct, 1],
     ["Sharpe ratio", "sharpe", num, 1],
@@ -649,6 +731,10 @@ function drawSummary(windows, stats) {
   const sides = windows.map((w, i) => {
     const big = Object.assign(element("strong"), { className: "big" });
     countUp(big, stats[i].finalValue, money);
+    // The gain in dollars and percent under the ending value, and where it started from.
+    const gain = stats[i].finalValue - START_VALUE;
+    const change = Object.assign(element("p", `${withSign(gain, moneyFit)} (${withSign(stats[i].totalReturn, pct)})`), { className: `change ${gain > 0 ? "gain" : gain < 0 ? "loss" : ""}` });
+    const from = Object.assign(element("p", `from ${money.format(START_VALUE)} on ${longDate(w.points[0].date)}`), { className: "from" });
     const facts = rows.map(([label, key, format, better]) => {
       const value = element("dd");
       countUp(value, stats[i][key], format);
@@ -656,23 +742,47 @@ function drawSummary(windows, stats) {
       if (Number.isFinite(other) && Number.isFinite(stats[i][key]) && (stats[i][key] - other) * better > 0) value.classList.add("win");
       return element("div", element("dt", term(label)), value);
     });
-    return Object.assign(element("section", element("h3", swatch(w.color), w.label), big, element("dl", ...facts)), { className: "side" });
+    return Object.assign(element("section", element("h3", swatch(w.color), w.label), big, change, from, element("dl", ...facts)), { className: "side" });
   });
   if (versus) sides.splice(1, 0, Object.assign(element("span", "VS"), { className: "vs-badge", ariaHidden: "true" }));
   $("summary").className = `summary${versus ? " versus" : ""}`;
   $("summary").replaceChildren(...sides);
 }
 
+// Two lines: is the gap between their returns more than luck? A 95% range from a paired t-test (gapRange in stats.js).
+function drawGapNote(windows) {
+  const note = $("gap-note");
+  note.hidden = windows.length !== 2;
+  if (note.hidden) return;
+  const [a, b] = windows;
+  const r = gapRange(periodReturns(a.points, 7, a.nextDate), periodReturns(b.points, 7, b.nextDate));
+  const title = element("strong", "Is the gap more than luck? ");
+  if (!r) return note.replaceChildren(title, "Judging that takes at least 6 full calendar months, and this period has fewer. Pick a longer one.");
+  const pts = (x) => `${num.format(Math.abs(x) * 100)} points`;
+  if (Math.max(Math.abs(r.low), Math.abs(r.high)) < 5e-5) return note.replaceChildren(title, `Over ${r.months} full months, the two lines returned the same, month after month.`);
+  const [lead, lag, sign] = r.gap >= 0 ? [a, b, 1] : [b, a, -1];
+  const [low, high] = [r.low * sign, r.high * sign].sort((x, y) => x - y); // in the leader's favour
+  const range = low > 0
+    ? `between ${pts(low)} and ${pts(high)} a year in ${lead.label}'s favour. That range stays clear of zero, so the gap is unlikely to be luck alone.`
+    : `anywhere from ${lag.label} ahead by ${pts(low)} to ${lead.label} ahead by ${pts(high)} a year. That range includes no gap at all, so this history is too short to tell whether one truly beats the other.`;
+  note.replaceChildren(
+    title,
+    `Over ${r.months} full months, ${lead.label} returned ${pts(r.gap)} a year more than ${lag.label} on average. `,
+    `With 95% confidence (a range that holds the true gap 19 times in 20), the true yearly gap lies ${range} `,
+    element("small", "Method: a paired t-test on monthly returns, which treats each month as independent of the others."),
+  );
+}
+
 // Every month of the chosen line, a row per year: green gains, red losses, stronger for bigger moves.
 const pctShort = new Intl.NumberFormat(undefined, { style: "percent", minimumFractionDigits: 1, maximumFractionDigits: 1, signDisplay: "exceptZero" });
 const MONTHS = Array.from({ length: 12 }, (_, m) => new Date(Date.UTC(2000, m)).toLocaleDateString(undefined, { month: "short", timeZone: "UTC" }));
 
-function heatCell(p, scale) {
+// Five solid shades each for gains and losses (heat-g1..g5, heat-l1..l5 in styles.css, with the key under the table),
+// one shade per `step`: 2.5 points for a month, 10 for a full year. The fifth shade is that many steps and more.
+function heatCell(p, step, extra = "") {
   if (!p) return element("td");
-  const strength = 0.1 + 0.75 * Math.min(1, Math.abs(p.value) / scale);
   const cell = element("td", pctShort.format(p.value));
-  cell.style.background = p.value >= 0 ? `rgba(31, 122, 77, ${strength})` : `rgba(179, 55, 43, ${strength})`;
-  if (strength > 0.55) cell.style.color = "#fff";
+  cell.className = `heat-${p.value >= 0 ? "g" : "l"}${Math.min(5, 1 + Math.floor(Math.abs(p.value) / step))} ${extra}`.trim();
   if (p.partial) {
     cell.classList.add("partial");
     cell.title = "Part of the period only";
@@ -697,8 +807,8 @@ function drawHeatmap(windows) {
     element(
       "tr",
       Object.assign(element("th", y.period), { scope: "row" }),
-      ...MONTHS.map((_, m) => heatCell(months.get(`${y.period}-${String(m + 1).padStart(2, "0")}`), 0.1)),
-      Object.assign(heatCell(y, 0.3), { className: `year${y.partial ? " partial" : ""}` }),
+      ...MONTHS.map((_, m) => heatCell(months.get(`${y.period}-${String(m + 1).padStart(2, "0")}`), 0.025)),
+      heatCell(y, 0.1, "year"),
     ),
   );
   $("heatmap").replaceChildren(element("thead", head), element("tbody", ...body));
