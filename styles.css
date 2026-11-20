@@ -201,6 +201,10 @@ legend {
 .field-grid input, .field-grid select { width: 100%; }
 #mc-form .status { margin-bottom: 0; }
 #mc-results { margin-top: 1.5rem; }
+/* Same runs with one thing changed (a crash first, no fee): sentences under the figures. */
+#mc-compare { margin-top: 1.5rem; padding-top: 1.25rem; border-top: 1px solid var(--line); }
+#mc-compare p { margin: 0 0 0.5rem; max-width: 44rem; font-size: 1.125rem; }
+#mc-compare .hint { margin: 0; font-size: 0.875rem; }
 
 .hero {
   display: flex;

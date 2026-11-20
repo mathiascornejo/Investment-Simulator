@@ -1,7 +1,7 @@
 // Run with: node --test js/montecarlo.test.js
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { walk, percentile, simulate, crisisTest, historicalRun } from "./montecarlo.js";
+import { walk, percentile, simulate, crisisTest, historicalRun, mulberry32, logStats, monthDrawer, failureYears, crisisMonths } from "./montecarlo.js";
 
 const series = (pairs) => pairs.map(([date, adjClose]) => ({ date, adjClose }));
 const close = (actual, expected, tolerance = 1e-6) =>
@@ -115,4 +115,105 @@ test("contributions: monthly and annual add the same money, annual a little late
   assert.deepEqual(walk([0, 0], 0, 0, 0, 1200, false).yearly, [0]); // nothing at the year-end mark yet
   assert.equal(walk([0, 0], 0, 0, 0, 1200, false).final, 1200); // all of it lands in month 1
   assert.equal(simulate({ monthlyReturns: [0], startValue: 1000, annualWithdrawal: 600, growth: 0, annualContribution: 600, years: 3, runs: 5 }).failureRate, 0); // contributions cancel the withdrawals
+});
+
+test("mulberry32: matches the published algorithm and repeats with the same seed", () => {
+  const random = mulberry32(42);
+  assert.equal(random(), 0.6011037519201636); // first numbers from the reference mulberry32 code with seed 42
+  assert.equal(random(), 0.44829055899754167);
+  const a = mulberry32(7);
+  const b = mulberry32(7);
+  for (let i = 0; i < 1000; i++) assert.equal(a(), b());
+  const many = Array.from({ length: 100_000 }, mulberry32(1));
+  assert.ok(many.every((u) => u >= 0 && u < 1));
+  close(many.reduce((s, u) => s + u, 0) / many.length, 0.5, 0.005);
+});
+
+test("logStats: average and sample spread of the log returns", () => {
+  const out = logStats([Math.E - 1, 1 / Math.E - 1]); // log returns +1 and -1
+  close(out.mean, 0);
+  close(out.sd, Math.SQRT2); // √((1 + 1) / (2 - 1))
+});
+
+test("block draws: real months in their real order, wrapping round, until a jump", () => {
+  // A run's first month takes one number (where to start); later months take one for the jump check, plus one
+  // for where to jump to when it does.
+  const script = [0.5, 0.9, 0.9, 0.01, 0.25, 0.9, 0.75];
+  const random = () => script.shift();
+  const draw = monthDrawer({ monthlyReturns: [0.1, 0.2, 0.3, 0.4], method: "block", blockLength: 12, random, runs: 2 });
+  // First month: a random start (0.5 of 4 months -> the 3rd). Then the 4th, then round to the 1st.
+  // 0.01 is under 1/12, so the run jumps (0.25 -> the 2nd month) and carries on from there.
+  assert.deepEqual([draw(0), draw(0), draw(0), draw(0), draw(0)], [0.3, 0.4, 0.1, 0.2, 0.3]);
+  assert.equal(draw(1), 0.4); // a second run keeps its own place: it starts at random (0.75 -> the 4th)
+  assert.equal(script.length, 0);
+});
+
+test("bell-curve and fat-tailed draws keep the history's average and spread", () => {
+  for (const method of ["normal", "t"]) {
+    // No spread in history: every draw is that one return.
+    const steady = monthDrawer({ monthlyReturns: [0.01, 0.01, 0.01], method, random: mulberry32(3) });
+    for (let i = 0; i < 10; i++) close(steady(), 0.01, 1e-12);
+  }
+  const history = [-0.08, -0.03, 0.01, 0.02, 0.04, 0.09];
+  const { mean, sd } = logStats(history);
+  const tails = {};
+  for (const method of ["normal", "t"]) {
+    const draw = monthDrawer({ monthlyReturns: history, method, random: mulberry32(11) });
+    const logs = Array.from({ length: 200_000 }, () => Math.log1p(draw()));
+    const m = logs.reduce((a, b) => a + b, 0) / logs.length;
+    const s = Math.sqrt(logs.reduce((a, b) => a + (b - m) ** 2, 0) / logs.length);
+    close(m, mean, 0.002);
+    close(s / sd, 1, 0.05);
+    tails[method] = logs.filter((x) => Math.abs(x - mean) > 3 * sd).length / logs.length;
+  }
+  close(tails.normal, 0.0027, 0.001); // a bell curve puts 0.27% of months beyond 3 spreads
+  // Student-t with 4 degrees of freedom, scaled to spread 1: beyond 3 spreads means |t| > 3√2. With sin θ = 3/√5.5,
+  // the two tails hold 2 × 3/4 × (2/3 - sin θ + sin³θ / 3) = 1.32%, five times the bell curve.
+  close(tails.t, 0.0132, 0.0015);
+});
+
+test("simulate: the same seed repeats a run; a fee only ever makes the same runs worse", () => {
+  const setup = { monthlyReturns: [-0.06, -0.02, 0.01, 0.03, 0.07], startValue: 1000, annualWithdrawal: 45, growth: 0.03, years: 25, runs: 3000, seed: 9 };
+  assert.deepEqual(simulate(setup), simulate(setup));
+  const plain = simulate(setup);
+  const charged = simulate({ ...setup, fee: 0.01 });
+  assert.ok(charged.failureRate > plain.failureRate);
+  for (const key of ["p10", "p50", "p90"]) assert.ok(charged.bands[key].at(-1) <= plain.bands[key].at(-1));
+  // 10% a year, taken monthly, leaves exactly 90% after a flat year.
+  close(simulate({ monthlyReturns: [0], startValue: 1000, annualWithdrawal: 0, growth: 0, years: 1, runs: 3, fee: 0.1 }).bands.p50[1], 900);
+  close(walk(flat(12), 1000, 0, 0, 0, true, 0.1).final, 900);
+});
+
+test("simulate: counts when runs ran out, year by year", () => {
+  // 50 a month empties 1,000 in the 20th month, which is in year 2.
+  const out = simulate({ monthlyReturns: [0], startValue: 1000, annualWithdrawal: 600, growth: 0, years: 3, runs: 4 });
+  assert.deepEqual(out.ranOut, [0, 0, 4, 4]);
+  assert.deepEqual(failureYears([0, 0, 1, 1, 3, 4]), { first: 2, half: 4 });
+  assert.equal(failureYears([0, 0, 0]), null);
+});
+
+test("simulate: a crisis prefix is replayed first by every run", () => {
+  const out = simulate({ monthlyReturns: [0], startValue: 1000, annualWithdrawal: 0, growth: 0, years: 2, runs: 5, prefix: [-0.5, 0.2] });
+  assert.deepEqual(out.bands.p10, [1000, 600, 600]);
+  assert.deepEqual(out.bands.p90, [1000, 600, 600]);
+  // Longer than the horizon: only the months that fit are used.
+  close(simulate({ monthlyReturns: [0], startValue: 1000, annualWithdrawal: 0, growth: 0, years: 1, runs: 1, prefix: flat(12).concat(-0.5) }).bands.p50[1], 1000);
+});
+
+test("crisisMonths: month-long steps from the start date to the low, from the last close on or before each", () => {
+  const p = series([
+    ["2020-01-10", 90],
+    ["2020-01-15", 100], // crisis starts here
+    ["2020-02-14", 90], // Friday: the close used for 15 Feb
+    ["2020-03-20", 72], // the low
+    ["2020-04-30", 95],
+  ]);
+  const months = crisisMonths(p, { start: "2020-01-15", end: "2020-03-20" }); // 65 days: two steps
+  assert.equal(months.length, 2);
+  close(months[0], -0.1);
+  close(months[1], -0.2);
+  assert.equal(crisisMonths(p, { start: "2019-12-01", end: "2020-03-20" }), null); // starts before the data
+  assert.equal(crisisMonths(p, { start: "2020-03-01", end: "2020-06-01" }), null); // ends after the data
+  const charged = historicalRun(series([["2020-01-31", 100], ["2020-02-28", 100]]), "2020-01-31", 1000, 0, 0, 0, true, 0.1);
+  close(charged.final, 1000 * 0.9 ** (1 / 12)); // one month of a 10% yearly fee
 });

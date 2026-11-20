@@ -254,6 +254,10 @@
             </select>
           </div>
           <div>
+            <label for="mc-fee">Adviser or platform fee per year (%)</label>
+            <input type="number" id="mc-fee" value="0" min="0" max="10" step="any" required>
+          </div>
+          <div>
             <label for="mc-years">Years to simulate</label>
             <input type="number" id="mc-years" value="30" min="1" max="60" step="1" required>
           </div>
@@ -265,6 +269,21 @@
               <option value="50000">50,000</option>
               <option value="100000">100,000</option>
               <option value="1000000">1,000,000</option>
+            </select>
+          </div>
+          <div>
+            <label for="mc-draw">How months are drawn</label>
+            <select id="mc-draw">
+              <option value="month" selected>Real months, one at a time</option>
+              <option value="block">Real months, in blocks</option>
+              <option value="normal">Bell curve</option>
+              <option value="t">Fat-tailed curve</option>
+            </select>
+          </div>
+          <div>
+            <label for="mc-begin">Start every run with</label>
+            <select id="mc-begin">
+              <option value="" selected>A random month</option>
             </select>
           </div>
         </div>
@@ -279,12 +298,19 @@
           <p><span id="mc-failure"></span> <span id="mc-failure-label"></span><span id="mc-lasted" class="hint"></span></p>
         </div>
         <dl id="mc-tiles" class="facts"></dl>
+        <div id="mc-compare" hidden></div>
 
         <div class="block">
           <h2 id="mc-chart-title"></h2>
           <ul id="mc-legend" class="legend"></ul>
           <div id="mc-chart" class="chart chart-tall"></div>
           <p id="mc-method" class="hint"></p>
+        </div>
+
+        <div class="block">
+          <h2>When Runs Ran Out</h2>
+          <p id="mc-timing" class="hint"></p>
+          <div id="mc-out-chart" class="chart chart-short"></div>
         </div>
 
         <div class="block">
