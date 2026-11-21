@@ -563,6 +563,7 @@ function drawTreemap(holdings) {
     addEventListener("hashchange", () => treemap.resize());
   }
   const base = frame(String, num);
+  const small = matchMedia("(max-width: 40rem)").matches; // on a phone a 20% tile is too narrow for "20.00%": smaller, and "20%"
   treemap.setOption(
     {
       aria: base.aria,
@@ -582,8 +583,8 @@ function drawTreemap(holdings) {
         itemStyle: { borderColor: "#fafaf8", borderWidth: 3, gapWidth: 3, borderRadius: 6 },
         // Tickers are letters, digits, dots and dashes, so they can't break the {style|text} markup.
         label: {
-          formatter: (item) => `{ticker|${item.name}}\n{weight|${num.format(item.value)}%}`,
-          rich: { ticker: { fontWeight: 600, fontSize: 13, lineHeight: 18 }, weight: { fontWeight: 300, fontSize: 18, lineHeight: 24 } },
+          formatter: (item) => `{ticker|${item.name}}\n{weight|${small ? num.format(item.value).replace(/[.,]00$/, "") : num.format(item.value)}%}`,
+          rich: { ticker: { fontWeight: 600, fontSize: 13, lineHeight: 18 }, weight: { fontWeight: 300, fontSize: small ? 14 : 18, lineHeight: small ? 20 : 24 } },
         },
         // Labels only where they fit (the tooltip still names small tiles), in whichever of ink or white reads better.
         // Rich-text parts don't inherit an item's label colour (they fall back to the series' white), so each part gets it too.
