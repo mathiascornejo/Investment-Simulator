@@ -10,7 +10,7 @@ import { pct, moneyFit, moneyCompact, longDate, monthLabel, element } from "./fo
 import { frame } from "./backtester.js";
 import { gauge, countUp, reducedMotion } from "./visuals.js";
 import { term } from "./glossary.js";
-
+import { countryName } from "./countries.js";
 
 const BENCHMARK = "SPY";
 const MIN_MONTHS = 24; // fewer real months than this is too little history to resample from
@@ -19,8 +19,9 @@ const MEDIAN = "#2a78d6";
 const MIDDLE_50 = "#9ec5f4";
 const MIDDLE_80 = "#cde2fb";
 const SAMPLE = "rgba(26, 26, 26, 0.16)"; // individual runs, drawn faintly behind the bands
+const RAN_OUT = "rgba(179, 55, 43, 0.3)"; // --loss, faint: sample runs that ran out of money
 const INK = "#1a1a1a"; // --ink in styles.css: the marker for the user's own withdrawal
-const PLAN = "#66665f"; // --muted: what the fixed rule would pay, for comparison with the guardrails
+const PLAN = "#66665f"; // --muted: reference lines (what the fixed rule would pay; the starting amount)
 const SAMPLES = 30;
 const BLOCK = 12; // average block length in months: each month has a 1-in-12 chance of starting a new block
 
@@ -37,6 +38,9 @@ const lower = (text) => text[0].toLowerCase() + text.slice(1); // "Dot-com crash
 const and = new Intl.ListFormat("en");
 const yearsWord = (n) => `${n} ${n === 1 ? "year" : "years"}`;
 const charts = {}; // each created on first use, once its container is visible
+let current = null; // the run on screen: its settings in words, results, seed and which random months it drew
+let pinned = null; // a run kept for comparison (memory only); while kept, every run reuses its seed
+let ranWith = null; // formNow() of the run on screen
 
 function say(text, isError = false) {
   status.textContent = text;
@@ -130,6 +134,10 @@ form.addEventListener("submit", async (event) => {
   }
 
   const name = portfolio ? portfolio.name : ticker;
+  // Read now, before loading: the form can change while prices load.
+  const ranFrom = formNow();
+  const basis = inflation.real ? `Today's dollars, adjusted for ${countryName(inflation.country)} inflation` : "Future dollars, not adjusted for inflation";
+  const settings = describe({ name, startValue, annualWithdrawal, growth, rule, annualContribution, contributeMonthly, fee, years, runs, crisis, basis });
   const holdings = portfolio ? portfolio.holdings.map((h) => h.ticker) : [ticker];
   const tickers = [...new Set([...holdings, BENCHMARK])];
   // Older funds that stand in for young ones in the crisis tests. One that fails to load is left out, and the table says so.
@@ -176,7 +184,8 @@ form.addEventListener("submit", async (event) => {
 
   // Comparisons rerun the same random draws with one thing changed, so the gap comes from that change, not from chance.
   const plan = { startValue, annualWithdrawal, growth, annualContribution, contributeMonthly, fee, rule };
-  const input = { ...plan, monthlyReturns: months.map((m) => m.value), years, runs, method, blockLength: BLOCK, prefix, seed: (Math.random() * 2 ** 32) >>> 0 };
+  // With a run kept for comparison, its seed is reused, so both runs draw the same random months.
+  const input = { ...plan, monthlyReturns: months.map((m) => m.value), years, runs, method, blockLength: BLOCK, prefix, seed: pinned ? pinned.seed : (Math.random() * 2 ** 32) >>> 0 };
   const guarded = rule === "guardrails";
   const extra = (crisis ? 1 : 0) + (fee > 0 ? 1 : 0) + (guarded ? 1 : 0);
   say(`Running ${runs.toLocaleString()} simulations${extra ? `, plus ${(runs * extra).toLocaleString()} more to compare` : ""}…`);
@@ -199,6 +208,13 @@ form.addEventListener("submit", async (event) => {
   }
   const { failureRate, bands, paths, ranOut } = result;
   say("");
+  // The same seed gives the same random months only with the same number of runs, way of drawing and history.
+  current = { settings, failureRate, bands, paths, startValue, seed: input.seed, draws: `${runs} ${method} ${months[0].period} ${months.length}` };
+  ranWith = ranFrom;
+  $("mc-summary").replaceChildren(...settings.filter((s) => s.tag).map((s) => element("li", s.tag)));
+  $("mc-basis").textContent = basis;
+  $("mc-pin-status").textContent = "";
+  drawPin();
 
   countUp($("mc-failure"), failureRate, rate);
   $("mc-failure-label").textContent = `of ${runs.toLocaleString()} runs ran out of money within ${years} ${years === 1 ? "year" : "years"}`;
@@ -220,7 +236,6 @@ form.addEventListener("submit", async (event) => {
   );
 
   $("mc-chart-title").textContent = `Range of Outcomes for ${name} Over ${years} ${years === 1 ? "Year" : "Years"}`;
-  legend($("mc-legend"), [["Median run", MEDIAN], ["Middle 50% of runs", MIDDLE_50], ["Middle 80% of runs", MIDDLE_80], [`${paths.length} sample runs`, SAMPLE]]);
   // The same setup with one thing changed, on the same random months.
   const fitted = Math.min(prefix.length, years * 12);
   const crisisNotes = crisis ? notes.fund(crisis.start) : [];
@@ -253,13 +268,108 @@ form.addEventListener("submit", async (event) => {
   drawCrises(crisisPoints, long[BENCHMARK].points, plan, notes);
   $("mc-spending-block").hidden = !(result.spending && annualWithdrawal > 0);
   $("mc-results").hidden = false;
+  checkStale(); // the form may have changed while this ran
   requestAnimationFrame(() => requestAnimationFrame(() => $("mc-gauge").classList.remove("start")));
   if (!window.echarts) return say("The chart library didn't load, so the charts are missing. Check your connection and reload.", true);
-  drawCone(bands, paths);
+  drawCone(current, pinned);
   if (!$("mc-spending-block").hidden) drawSpending(result.spending, plan);
   drawTiming(ranOut, runs, years);
   drawRates(result, plan, runs, years);
   drawStarts(months, name, years, plan);
+});
+
+// A run's settings in words, in a fixed order: `value` for the kept-run comparison, `tag` (when worth showing) for the
+// row of tags above the results.
+function describe({ name, startValue, annualWithdrawal, growth, rule, annualContribution, contributeMonthly, fee, years, runs, crisis, basis }) {
+  const start = moneyFit.format(startValue);
+  const rise = growth ? `, rising ${rate.format(growth)}` : "";
+  const out = moneyFit.format(annualWithdrawal);
+  const into = moneyFit.format(annualContribution);
+  const when = contributeMonthly ? "monthly" : "at the start of each year";
+  const text = (id) => $(id).selectedOptions[0].text;
+  return [
+    { label: "Portfolio", value: name, tag: name },
+    { label: "Starting amount", value: start, tag: `${start} start` },
+    { label: "Withdrawal per year", value: annualWithdrawal ? `${out}${rise}` : "None", tag: annualWithdrawal ? `${out} a year out${rise}` : "No withdrawals" },
+    { label: "Withdrawal rule", value: text("mc-rule"), tag: rule === "guardrails" && "Guardrails withdrawal rule" },
+    { label: "Contribution per year", value: annualContribution ? `${into}, ${when}` : "None", tag: annualContribution > 0 && `${into} a year in, ${when}` },
+    { label: "Fee per year", value: fee ? feeRate.format(fee) : "None", tag: fee > 0 && `${feeRate.format(fee)} yearly fee` },
+    { label: "Years to simulate", value: yearsWord(years), tag: yearsWord(years) },
+    { label: "Number of runs", value: runs.toLocaleString(), tag: `${runs.toLocaleString()} runs` },
+    { label: "How months are drawn", value: text("mc-draw"), tag: text("mc-draw") },
+    { label: "Start every run with", value: crisis ? crisis.name : "A random month", tag: crisis && `Starts with the ${lower(crisis.name)}` },
+    { label: "Money", value: basis, tag: basis },
+  ];
+}
+
+// Everything in the form a run depends on, as one string, including the chosen saved portfolio's recipe.
+function formNow() {
+  const portfolio = loadPortfolios().find((p) => p.name === $("mc-portfolio").value);
+  return JSON.stringify([portfolio ?? $("mc-ticker").value.trim().toUpperCase(), ...[...form.querySelectorAll("input:not(#mc-ticker), select")].map((el) => el.value)]);
+}
+
+// Results that no longer match the form fade under a note; running again or putting the old values back clears it.
+const runAgain = Object.assign(element("button", "Run again"), { type: "button", className: "quiet" });
+runAgain.addEventListener("click", () => {
+  const button = form.querySelector("button[type=submit]");
+  if (button.disabled) return; // a run is already going
+  button.focus(); // the note and this button go once the new results are in
+  form.requestSubmit();
+});
+function checkStale() {
+  const stale = !$("mc-results").hidden && ranWith !== null && formNow() !== ranWith;
+  if (stale === $("mc-results").classList.contains("stale")) return; // only a change is announced
+  $("mc-results").classList.toggle("stale", stale);
+  $("mc-stale").replaceChildren(...(stale ? ["These results are for the previous settings. Run again to update.", runAgain] : []));
+}
+// keyup and click too: picking a ticker suggestion fills the box without an input event.
+for (const type of ["input", "change", "keyup", "click"]) form.addEventListener(type, checkStale);
+addEventListener("portfolios-changed", checkStale);
+
+// Keep for comparison: the kept run's figures beside the latest, and the settings that differ.
+function drawPin() {
+  const comparing = Boolean(pinned) && pinned !== current;
+  $("mc-keep").hidden = pinned === current;
+  $("mc-keep").textContent = comparing ? "Keep this run instead" : "Keep for comparison";
+  $("mc-unpin").hidden = !pinned;
+  $("mc-pin-compare").hidden = !comparing;
+  if (!comparing) return;
+  const row = (label, before, after) => element("tr", Object.assign(element("th", label), { scope: "row" }), element("td", before), element("td", after));
+  const changed = current.settings.map((now, i) => [now, pinned.settings[i]]).filter(([now, then]) => now.value !== then.value);
+  $("mc-pin-table").replaceChildren(
+    element("thead", element("tr", element("td"), ...["Kept run", "This run"].map((h) => Object.assign(element("th", h), { scope: "col" })))),
+    element(
+      "tbody",
+      row("Runs that ran out of money", rate.format(pinned.failureRate), rate.format(current.failureRate)),
+      row("Median ending balance", moneyFit.format(pinned.bands.p50.at(-1)), moneyFit.format(current.bands.p50.at(-1))),
+      ...changed.map(([now, then]) => row(now.label, then.value, now.value)),
+    ),
+  );
+  const same = pinned.draws === current.draws;
+  $("mc-pin-hint").textContent = changed.length
+    ? same
+      ? "Below the two results are the settings that changed. Both runs used the same random months, so the gap comes from those changes, not from luck."
+      : "Below the two results are the settings that changed. The number of runs, how months are drawn or the price history differs, so the two runs drew different random months and part of the gap is luck."
+    : same
+      ? "No setting here changed, and both runs used the same random months."
+      : "No setting here changed, but the price history behind the runs did, so they drew different random months and the gap is luck.";
+}
+// Only a run kept and then changed draws kept lines on the cone; keeping or letting go of a run removes them.
+function setPin(run) {
+  const hadLines = Boolean(pinned) && pinned !== current;
+  pinned = run;
+  if (hadLines && window.echarts) drawCone(current, null);
+  drawPin();
+}
+$("mc-keep").addEventListener("click", () => {
+  setPin(current);
+  $("mc-unpin").focus(); // the Keep button has just hidden itself
+  $("mc-pin-status").textContent = "Kept. Change a setting and run again to compare. Until you stop comparing, each run reuses the kept run's random months.";
+});
+$("mc-unpin").addEventListener("click", () => {
+  setPin(null);
+  $("mc-keep").focus();
+  $("mc-pin-status").textContent = "Stopped comparing. The next run draws new random months.";
 });
 
 // "VOO uses SPY before 9 Sep 2010 and VFINX before 29 Jan 1993": for each fund, the stand-ins that cover dates from `from` on.
@@ -270,11 +380,13 @@ function standInNotes(long, funds, from) {
   });
 }
 
+// Entries are [label, colour] for a filled square, or [label, colour, "dashed" or "dotted"] for a line.
 function legend(list, entries) {
   list.replaceChildren(
-    ...entries.map(([label, color]) => {
-      const swatch = Object.assign(element("span"), { className: "swatch" });
-      swatch.style.background = color;
+    ...entries.map(([label, color, line]) => {
+      const swatch = Object.assign(element("span"), { className: line ? "swatch mc-line" : "swatch" });
+      if (line) swatch.style.borderTop = `2px ${line} ${color}`;
+      else swatch.style.background = color;
       return element("li", swatch, label);
     }),
   );
@@ -441,7 +553,21 @@ function drawTiming(ranOut, runs, years) {
   );
 }
 
-function drawCone(bands, paths) {
+// `kept` is a run kept for comparison: its median and 10th percentile are drawn as dashed and dotted lines.
+function drawCone({ bands, paths, startValue }, kept) {
+  const runsThat = (list, what) => (list.length ? [[`${list.length} sample ${list.length === 1 ? "run" : "runs"} that ${what}`, what === "lasted" ? SAMPLE : RAN_OUT]] : []);
+  const ranOut = (path) => path.at(-1) === 0; // a run that runs out stays at exactly 0
+  legend($("mc-legend"), [
+    ["Median run", MEDIAN],
+    ["Middle 50% of runs", MIDDLE_50],
+    ["Middle 80% of runs", MIDDLE_80],
+    ...runsThat(paths.filter((p) => !ranOut(p)), "lasted"),
+    ...runsThat(paths.filter(ranOut), "ran out"),
+    ...(kept ? [["Kept run's median", INK, "dashed"], ["Kept run's 10th percentile", INK, "dotted"]] : []),
+  ]);
+  const years = bands.p50.length - 1;
+  const keptBands = kept && { p50: kept.bands.p50.slice(0, years + 1), p10: kept.bands.p10.slice(0, years + 1) };
+  const every = [1, 2, 5, 10].find((step) => years / step <= 8); // "Now, 5 yrs, 10 yrs": at most about 8 labels
   const chart = chartIn("mc-chart");
   const base = frame(String, moneyFit);
   const gap = (upper, lower) => upper.map((v, i) => v - lower[i]);
@@ -467,18 +593,20 @@ function drawCone(bands, paths) {
     showSymbol: false,
     silent: true,
     z: 3,
-    lineStyle: { width: 1, color: SAMPLE },
+    lineStyle: { width: 1, color: ranOut(data) ? RAN_OUT : SAMPLE },
     emphasis: { disabled: true },
     animationDuration: 1100,
     animationDelay: i * 12,
     tooltip: { show: false },
   });
+  const keptLine = (name, data, type) => ({ name, type: "line", data, showSymbol: false, silent: true, z: 5, lineStyle: { width: 1.5, color: INK, type }, emphasis: { disabled: true }, animationDelay: 1100 });
   const rows = [
-    ["Strong outcome (90th percentile)", "p90"],
-    ["75th percentile", "p75"],
-    ["Median", "p50"],
-    ["25th percentile", "p25"],
-    ["Poor outcome (10th percentile)", "p10"],
+    ["Strong outcome (90th percentile)", bands.p90],
+    ["75th percentile", bands.p75],
+    ["Median", bands.p50],
+    ["25th percentile", bands.p25],
+    ["Poor outcome (10th percentile)", bands.p10],
+    ...(kept ? [["Kept run's median", keptBands.p50], ["Kept run's 10th percentile", keptBands.p10]] : []),
   ];
   chart.setOption(
     {
@@ -492,20 +620,47 @@ function drawCone(bands, paths) {
           const year = items[0].dataIndex;
           return (
             `<strong>${year === 0 ? "Start" : `After ${year} ${year === 1 ? "year" : "years"}`}</strong>` +
-            rows.map(([label, key]) => `<div style="display:flex;justify-content:space-between;gap:1.5rem"><span>${label}</span><span>${moneyFit.format(bands[key][year])}</span></div>`).join("")
+            rows
+              .filter(([, list]) => year < list.length) // a kept run with fewer years stops early
+              .map(([label, list]) => `<div style="display:flex;justify-content:space-between;gap:1.5rem"><span>${label}</span><span>${moneyFit.format(list[year])}</span></div>`)
+              .join("")
           );
         },
       },
-      xAxis: { ...base.xAxis, type: "category", boundaryGap: false, data: bands.p50.map((_, year) => year) },
-      // Capped just above the 90th percentile: a few wild sample runs would otherwise squash the cone.
-      yAxis: { ...base.yAxis, type: "value", min: 0, max: Number((Math.max(...bands.p90) * 1.1).toPrecision(2)), axisLabel: { ...base.yAxis.axisLabel, showMaxLabel: false, formatter: (v) => moneyCompact.format(v) } },
+      xAxis: {
+        ...base.xAxis,
+        type: "category",
+        boundaryGap: false,
+        data: bands.p50.map((_, year) => year),
+        name: "Years from now",
+        nameLocation: "middle",
+        nameGap: 28,
+        nameTextStyle: { color: base.xAxis.axisLabel.color, fontSize: 12 },
+        axisLabel: { ...base.xAxis.axisLabel, interval: (i) => i % every === 0, formatter: (year) => (Number(year) === 0 ? "Now" : `${year} ${Number(year) === 1 ? "yr" : "yrs"}`) },
+      },
+      // Capped just above the 90th percentile (and the kept median): a few wild sample runs would otherwise squash the cone.
+      // The 90th percentile starts at the starting amount, so the starting-amount line always fits under the cap.
+      yAxis: { ...base.yAxis, type: "value", min: 0, max: Number((Math.max(...bands.p90, ...(keptBands?.p50 ?? [])) * 1.1).toPrecision(2)), axisLabel: { ...base.yAxis.axisLabel, showMaxLabel: false, formatter: (v) => moneyCompact.format(v) } },
       series: [
         ...paths.map(sample),
         layer("10th percentile", bands.p10),
         layer("10th to 25th", gap(bands.p25, bands.p10), MIDDLE_80),
         layer("25th to 75th", gap(bands.p75, bands.p25), MIDDLE_50),
         layer("75th to 90th", gap(bands.p90, bands.p75), MIDDLE_80),
-        { name: "Median", type: "line", data: bands.p50, showSymbol: false, z: 4, lineStyle: { width: 2, color: MEDIAN }, itemStyle: { color: MEDIAN }, emphasis: { disabled: true }, animationDelay: 1100 },
+        {
+          name: "Median",
+          type: "line",
+          data: bands.p50,
+          showSymbol: false,
+          z: 4,
+          lineStyle: { width: 2, color: MEDIAN },
+          itemStyle: { color: MEDIAN },
+          emphasis: { disabled: true },
+          animationDelay: 1100,
+          // Where the balance began, so runs that fall below it stand out.
+          markLine: { silent: true, symbol: "none", lineStyle: { color: PLAN, type: "dashed", width: 1 }, label: { formatter: "Starting amount", position: "insideStartTop", color: PLAN }, data: [{ yAxis: startValue }] },
+        },
+        ...(kept ? [keptLine("Kept run's median", keptBands.p50, "dashed"), keptLine("Kept run's 10th percentile", keptBands.p10, "dotted")] : []),
       ],
     },
     true,

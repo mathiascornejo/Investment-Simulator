@@ -228,6 +228,20 @@ legend {
 #mc-compare { margin-top: 1.5rem; padding-top: 1.25rem; border-top: 1px solid var(--line); }
 #mc-compare p { margin: 0 0 0.5rem; max-width: 44rem; font-size: 1.125rem; }
 #mc-compare .hint { margin: 0; font-size: 0.875rem; }
+/* Results that no longer match the form: faded under the note (#mc-stale, a .notice with a Run again button). */
+#mc-results > :not(#mc-stale) { transition: opacity 0.2s; }
+#mc-results.stale > :not(#mc-stale) { opacity: 0.6; }
+@media (prefers-reduced-motion: reduce) { #mc-results > * { transition: none; } }
+/* The settings behind the results, as a row of hairline tags. */
+.mc-tags { display: flex; flex-wrap: wrap; gap: 0.375rem; margin: 0 0 1.25rem; padding: 0; list-style: none; }
+.mc-tags li { padding: 0.125rem 0.625rem; border: 1px solid var(--line); border-radius: 999px; font-size: 0.8125rem; color: var(--muted); }
+/* Keep for comparison: the kept run against the latest, then the buttons. */
+#mc-pin { margin-top: 1.5rem; padding-top: 1.25rem; border-top: 1px solid var(--line); }
+#mc-pin-table { width: auto; }
+#mc-pin-compare .hint { margin: 0.5rem 0 1rem; }
+/* Future or today's dollars, under the cone's title in the rail (its row sits beside the chart's top). */
+#mc-basis { grid-column: 1; grid-row: 2; margin: 0.375rem 0 0; padding-left: 0.875rem; font-size: 0.8125rem; color: var(--muted); }
+#mc-legend .mc-line { height: 0; border-radius: 0; vertical-align: middle; } /* kept-run lines: a dash, not a square */
 /* The finding a result block opens with (spending, other withdrawal amounts, every real start date), in ink above its chart. */
 .mc-lead { margin: 0; max-width: 44rem; }
 
