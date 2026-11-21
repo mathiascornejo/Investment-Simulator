@@ -417,8 +417,9 @@ function swatch(color) {
   return node;
 }
 
-// A table group's heading row: the line's colour and name across every column.
-const groupRow = (w, columns) => Object.assign(element("tr", Object.assign(element("th", swatch(w.color), w.label), { scope: "rowgroup", colSpan: columns })), { className: "group" });
+// A table group's heading row: the line's colour and name in the first column (which stays put when a phone scrolls
+// the table sideways, like the statistics table's group rows), an empty cell across the rest.
+const groupRow = (w, columns) => Object.assign(element("tr", Object.assign(element("th", swatch(w.color), w.label), { scope: "rowgroup" }), Object.assign(element("td"), { colSpan: columns - 1 })), { className: "group" });
 const headRow = (...labels) => element("tr", ...labels.map((text) => Object.assign(element("th", text), { scope: "col" })));
 const names = new Intl.ListFormat(undefined, { type: "conjunction" }); // "SPY, QQQ and GLD"
 const oneDecimal = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 });
