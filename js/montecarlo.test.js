@@ -107,6 +107,17 @@ test("simulate: sample paths follow the first runs year by year", () => {
   assert.deepEqual(simulate({ monthlyReturns: [0], startValue: 1, annualWithdrawal: 0, growth: 0, years: 1, runs: 3 }).paths, []);
 });
 
+test("simulate: a sample run that ran out stays at exactly 0, even with contributions", () => {
+  // 1,000 with 100 a month out and 50 a month in loses 50 a month: 400 after a year, empty after 20 months,
+  // and the contributions of year 3 don't bring it back.
+  const out = simulate({ monthlyReturns: [0], startValue: 1000, annualWithdrawal: 1200, growth: 0, years: 3, runs: 2, samples: 2, annualContribution: 600 });
+  assert.equal(out.failureRate, 1);
+  for (const path of out.paths) assert.deepEqual(path.map((v) => Math.round(v)), [1000, 400, 0, 0]);
+  // A run that lasts never reads 0: the tab colours sample runs by whether they end at 0.
+  const lasting = simulate({ monthlyReturns: [0], startValue: 1000, annualWithdrawal: 120, growth: 0, years: 3, runs: 2, samples: 2 });
+  assert.ok(lasting.paths.every((path) => path.at(-1) > 0));
+});
+
 test("contributions: monthly and annual add the same money, annual a little later", () => {
   const monthly = walk(Array(12).fill(0), { startValue: 0, annualContribution: 1200 });
   const annual = walk(Array(12).fill(0), { startValue: 0, annualContribution: 1200, contributeMonthly: false });

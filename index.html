@@ -402,15 +402,29 @@
       <div id="mc-skeleton" class="skeleton" aria-hidden="true" hidden><i class="sk-row"></i><i class="sk-chart"></i></div>
 
       <div id="mc-results" class="panel" hidden>
+        <p id="mc-stale" class="notice" role="status"></p>
+        <ul id="mc-summary" class="mc-tags" aria-label="Settings behind these results"></ul>
         <div class="hero">
           <div id="mc-gauge" class="gauge"></div>
           <p><span id="mc-failure"></span> <span id="mc-failure-label"></span><span id="mc-lasted" class="hint"></span></p>
         </div>
         <dl id="mc-tiles" class="facts"></dl>
         <div id="mc-compare" hidden></div>
+        <div id="mc-pin">
+          <div id="mc-pin-compare" hidden>
+            <div class="table-scroll"><table id="mc-pin-table"></table></div>
+            <p id="mc-pin-hint" class="hint"></p>
+          </div>
+          <div class="row">
+            <button type="button" id="mc-keep" class="quiet">Keep for comparison</button>
+            <button type="button" id="mc-unpin" class="quiet" hidden>Stop comparing</button>
+          </div>
+          <p id="mc-pin-status" class="hint" role="status"></p>
+        </div>
 
         <div class="block">
           <h2 id="mc-chart-title"></h2>
+          <p id="mc-basis"></p>
           <ul id="mc-legend" class="legend"></ul>
           <div id="mc-chart" class="chart chart-tall"></div>
           <p id="mc-method" class="hint"></p>
