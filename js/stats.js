@@ -102,6 +102,48 @@ export function holdingPeriods(points, years) {
   return { count: returns.length, lossShare: returns.filter((r) => r < 0).length / returns.length, ...spread(returns) };
 }
 
+// Your own money in a price series: `start` on the first day, then `monthly` at the close of the first trading day
+// of every later month. A negative `monthly` is a withdrawal, never more than what is left. flows are dated as the
+// investor sees them, for xirr(): money paid in is negative, money taken out and the ending balance positive.
+export function withDeposits(points, start, monthly) {
+  let balance = start;
+  let paidIn = start;
+  let takenOut = 0;
+  const flows = [{ date: points[0].date, amount: -start }];
+  for (let i = 1; i < points.length; i++) {
+    balance *= points[i].adjClose / points[i - 1].adjClose;
+    if (points[i].date.slice(0, 7) === points[i - 1].date.slice(0, 7)) continue;
+    const amount = Math.max(monthly, -balance);
+    balance += amount;
+    if (amount > 0) paidIn += amount;
+    else takenOut -= amount;
+    if (amount) flows.push({ date: points[i].date, amount: -amount });
+  }
+  flows.push({ date: points.at(-1).date, amount: balance });
+  return { flows, final: balance, paidIn, takenOut };
+}
+
+// The money-weighted return: the yearly rate at which every flow, discounted back to the first one, adds up to 0.
+// Years are 365.25 days, as in cagr(), so with no deposits it equals the annualised return. Found by bisection;
+// null when no rate between -99.99% and +1,000,000% a year fits.
+export function xirr(flows) {
+  const used = flows.filter((f) => f.amount !== 0);
+  if (used.length < 2) return null;
+  const years = used.map((f) => (Date.parse(f.date) - Date.parse(used[0].date)) / (365.25 * 864e5));
+  const npv = (r) => used.reduce((sum, f, i) => sum + f.amount / (1 + r) ** years[i], 0);
+  let lo = -0.9999;
+  let hi = 1;
+  const below = Math.sign(npv(lo));
+  while (Math.sign(npv(hi)) === below && hi < 1e4) hi *= 10;
+  if (Math.sign(npv(hi)) === below) return null;
+  for (let k = 0; k < 200; k++) {
+    const mid = (lo + hi) / 2;
+    if (Math.sign(npv(mid)) === below) lo = mid;
+    else hi = mid;
+  }
+  return (lo + hi) / 2;
+}
+
 export const volatility = (returns) => stdev(returns) * Math.sqrt(TRADING_DAYS);
 
 // shortcut: Sharpe and Sortino assume a 0% risk-free rate. Subtract a daily T-bill return

@@ -13,33 +13,54 @@ export const REBALANCE_RULES = {
 };
 
 const STORAGE_KEY = "portfolios";
+export const UNREADABLE_KEY = "portfolios-unreadable"; // saved data that couldn't be read, kept so the next save can't lose it
 
 export function loadPortfolios() {
+  let raw = null;
   try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY)) ?? [];
-  } catch {
-    return []; // unreadable storage is treated as "nothing saved"
-  }
+    raw = localStorage.getItem(STORAGE_KEY);
+    const list = JSON.parse(raw) ?? [];
+    if (Array.isArray(list)) return list;
+  } catch {} // storage blocked, or not JSON
+  // shortcut: only the first unreadable copy is kept; a second, different one is treated as empty without a copy.
+  try {
+    if (raw !== null && localStorage.getItem(UNREADABLE_KEY) === null) localStorage.setItem(UNREADABLE_KEY, raw);
+  } catch {}
+  return [];
 }
 
+// Returns false when the browser refused (storage full, or blocked in some private windows); nothing changes then.
 export function savePortfolios(portfolios) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(portfolios));
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(portfolios));
+  } catch {
+    return false;
+  }
   dispatchEvent(new Event("portfolios-changed")); // other tabs of the app refresh their lists
+  return true;
 }
 
 // What is wrong with a portfolio, in words, or "" if nothing. The form and file restores both use it.
-export function portfolioProblem(p) {
+export const portfolioProblem = (p) => portfolioIssue(p)?.message ?? "";
+
+// The same, with the part at fault, so the form can point at the box: field is "name", "holdings", "ticker",
+// "weight", "total" (the weights' sum), "rebalance", "band" or "cost"; holding is the index of the holding at fault.
+export function portfolioIssue(p) {
   const tickers = p.holdings.map((h) => h.ticker);
-  if (!p.name) return "Give the portfolio a name.";
-  if (!p.holdings.length) return "Add at least one holding.";
-  if (tickers.some((t) => !/^[A-Z0-9.-]{1,12}$/.test(t))) return "Every holding needs a ticker made of letters, digits, dots or dashes.";
-  if (new Set(tickers).size < tickers.length) return "Each ticker can appear only once. Combine the duplicates.";
-  if (p.holdings.some((h) => !(h.weight > 0))) return "Every holding needs a weight above 0.";
-  if (Math.abs(p.holdings.reduce((sum, h) => sum + h.weight, 0) - 100) >= 0.005) return "The weights must add up to 100%.";
-  if (!Object.hasOwn(REBALANCE_RULES, p.rebalance)) return "Pick a rebalancing rule.";
-  if (p.rebalance === "band" && !(p.band >= 1 && p.band <= 50)) return "Set the drift limit between 1 and 50 percentage points.";
-  if (!(p.cost >= 0 && p.cost <= 5)) return "Set the trading cost between 0% and 5%.";
-  return "";
+  const issue = (message, field, holding) => ({ message, field, holding });
+  if (!p.name) return issue("Give the portfolio a name.", "name");
+  if (!p.holdings.length) return issue("Add at least one holding.", "holdings");
+  const badTicker = tickers.findIndex((t) => !/^[A-Z0-9.-]{1,12}$/.test(t));
+  if (badTicker > -1) return issue("Every holding needs a ticker made of letters, digits, dots or dashes.", "ticker", badTicker);
+  const repeat = tickers.findIndex((t, i) => tickers.indexOf(t) < i);
+  if (repeat > -1) return issue("Each ticker can appear only once. Combine the duplicates.", "ticker", repeat);
+  const noWeight = p.holdings.findIndex((h) => !(h.weight > 0));
+  if (noWeight > -1) return issue("Every holding needs a weight above 0.", "weight", noWeight);
+  if (Math.abs(p.holdings.reduce((sum, h) => sum + h.weight, 0) - 100) >= 0.005) return issue("The weights must add up to 100%.", "total");
+  if (!Object.hasOwn(REBALANCE_RULES, p.rebalance)) return issue("Pick a rebalancing rule.", "rebalance");
+  if (p.rebalance === "band" && !(p.band >= 1 && p.band <= 50)) return issue("Set the drift limit between 1 and 50 percentage points.", "band");
+  if (!(p.cost >= 0 && p.cost <= 5)) return issue("Set the trading cost between 0% and 5%.", "cost");
+  return null;
 }
 
 // One entry of a backup file -> a clean portfolio, or a message saying why it can't be used.

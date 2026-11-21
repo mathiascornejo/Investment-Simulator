@@ -89,6 +89,20 @@ try {
     localStorage.setItem("real", real.checked ? "1" : "0");
     changed();
   });
+  // Another browser tab of the site saved portfolios or changed the inflation setting: follow it here too.
+  // (The browser only tells the other tabs, so nothing here runs twice.) A null key means storage was cleared.
+  addEventListener("storage", (e) => {
+    if (e.key === "portfolios" || e.key === null) dispatchEvent(new Event("portfolios-changed"));
+    if (e.key !== "real" && e.key !== "country" && e.key !== null) return;
+    const on = localStorage.getItem("real") === "1";
+    const code = localStorage.getItem("country") || "US";
+    if (on === inflation.real && code === inflation.country) return;
+    inflation.real = real.checked = on;
+    inflation.country = code;
+    showControls(on);
+    showCountry(code);
+    changed();
+  });
 
   // The "i" note: where the inflation figures come from, how recent they are, what they add up to, and their limits.
   // It uses the figures the tabs load anyway (fetchCpi keeps them), so it costs no extra request.

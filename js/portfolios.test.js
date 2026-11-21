@@ -1,7 +1,7 @@
 // Run with: node --test js/portfolios.test.js
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { portfolioSeries, freeName, readPortfolio, riskShares, effectiveHoldings, diversificationRatio } from "./portfolios.js";
+import { portfolioSeries, freeName, readPortfolio, portfolioIssue, riskShares, effectiveHoldings, diversificationRatio } from "./portfolios.js";
 
 const series = (pairs) => pairs.map(([date, adjClose]) => ({ date, adjClose }));
 const values = (out) => out.points.map((p) => +p.adjClose.toFixed(6));
@@ -135,4 +135,14 @@ test("a backup entry is rebuilt and checked before it is used", () => {
   assert.equal(readPortfolio({ name: "A", holdings: [{ ticker: "<b>", weight: 100 }], rebalance: "none" }), "Every holding needs a ticker made of letters, digits, dots or dashes.");
   assert.equal(readPortfolio({ name: "A", holdings: [{ ticker: "SPY", weight: 100 }], rebalance: "toString" }), "Pick a rebalancing rule.");
   assert.equal(readPortfolio({ name: "A", holdings: [{ ticker: "SPY", weight: 100 }], rebalance: "none", cost: 9 }), "Set the trading cost between 0% and 5%.");
+});
+
+test("a problem names the part at fault, so the form can point at its box", () => {
+  const p = (holdings, extra = {}) => ({ name: "A", holdings, rebalance: "none", band: 5, cost: 0, ...extra });
+  assert.equal(portfolioIssue(p([{ ticker: "SPY", weight: 100 }])), null);
+  assert.deepEqual(portfolioIssue(p([{ ticker: "SPY", weight: 60 }, { ticker: "SPY", weight: 40 }])), { message: "Each ticker can appear only once. Combine the duplicates.", field: "ticker", holding: 1 });
+  assert.equal(portfolioIssue(p([{ ticker: "SPY", weight: 60 }, { ticker: "BND", weight: 0 }])).holding, 1);
+  assert.equal(portfolioIssue(p([{ ticker: "SPY", weight: 60 }, { ticker: "BND", weight: 30 }])).field, "total");
+  assert.equal(portfolioIssue(p([{ ticker: "SPY", weight: 100 }], { name: "" })).field, "name");
+  assert.equal(portfolioIssue(p([{ ticker: "SPY", weight: 100 }], { rebalance: "band", band: 0 })).field, "band");
 });

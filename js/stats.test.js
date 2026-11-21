@@ -229,3 +229,27 @@ test("bell-curve share below z matches printed tables", () => {
   close(s.normalCdf(1.96), 0.9750021, 1e-6);
   close(s.normalCdf(-1), 0.1586553, 1e-6);
 });
+
+test("deposits go in at the first trading day of each later month, after that day's move", () => {
+  // 1,000 grows 10% to 1,100 on 1 Feb, then 100 goes in: 1,200, which grows 10% to 1,320.
+  const p = series([["2021-01-29", 100], ["2021-02-01", 110], ["2021-02-02", 121]]);
+  const d = s.withDeposits(p, 1000, 100);
+  close(d.final, 1320);
+  close(d.paidIn, 1100);
+  assert.deepEqual(d.flows, [{ date: "2021-01-29", amount: -1000 }, { date: "2021-02-01", amount: -100 }, { date: "2021-02-02", amount: 1320 }]);
+  // A withdrawal never takes more than is left: 1,100 after the move, so only 1,100 comes out.
+  const w = s.withDeposits(p, 1000, -5000);
+  close(w.takenOut, 1100);
+  close(w.final, 0);
+});
+
+test("money-weighted return (XIRR) matches hand-worked rates", () => {
+  // 1 Jan 2020 to 1 Jan 2024 is 1,461 days, exactly 4 years of 365.25 days. 1,000 growing 10% a year is 1,464.10.
+  close(s.xirr([{ date: "2020-01-01", amount: -1000 }, { date: "2024-01-01", amount: 1464.1 }]), 0.1, 1e-9);
+  // Two deposits 4 years apart, at 10% a year: 1,000 x 1.1^8 + 1,000 x 1.1^4 = 2,143.58881 + 1,464.1.
+  close(s.xirr([{ date: "2020-01-01", amount: -1000 }, { date: "2024-01-01", amount: -1000 }, { date: "2028-01-01", amount: 3607.68881 }]), 0.1, 1e-9);
+  // With no deposits it equals the annualised return.
+  const p = series([["2020-01-01", 100], ["2021-06-30", 90], ["2023-03-15", 131]]);
+  close(s.xirr(s.withDeposits(p, 500, 0).flows), s.cagr(p), 1e-9);
+  assert.equal(s.xirr([{ date: "2020-01-01", amount: -1000 }]), null);
+});

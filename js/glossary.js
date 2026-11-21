@@ -7,6 +7,8 @@ import { element } from "./format.js";
 const DEFINITIONS = {
   "total return": ["How much the value changed over the period, with dividends reinvested.", "end value ÷ start value − 1"],
   "annualised return": ["The steady yearly growth rate that would turn the start value into the end value. Not shown for periods under a year.", "(end ÷ start)^(1 ÷ years) − 1"],
+  "time-weighted return": ["The portfolio's own yearly return, which ignores when money was paid in or taken out. It is the annualised return, and the fair way to compare one fund or mix with another.", "(end ÷ start)^(1 ÷ years) − 1"],
+  "money-weighted return": ["Your own yearly return, which counts when each deposit or withdrawal happened. It is the steady yearly rate that grows every amount you paid in, from its own date, into what you took out plus what is left. Also called the internal rate of return, or XIRR.", "the rate r where the sum of each amount ÷ (1 + r)^(years from the start) is 0"],
   volatility: ["How much returns swing around their average, scaled to a year. Higher means a bumpier ride.", "st. dev. of daily returns × √252"],
   "maximum drawdown": ["The biggest fall from a high point to a later low, before a new high.", "lowest (value ÷ previous peak) − 1"],
   "best year": ["The return in the best full calendar year inside the period.", null],

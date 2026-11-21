@@ -84,19 +84,37 @@ export function glyph(kind) {
   return node;
 }
 
-// Rolls a figure up from zero. The final text is set straight away for reduced motion.
-export function countUp(node, value, format) {
-  if (!Number.isFinite(value) || reducedMotion()) {
-    node.textContent = show(value, format);
+// Rolls a figure to `value`. With a `key` (what the figure is, such as "bt|SPY|cagr"), it rolls from the value last
+// shown under that key, not from zero, and a figure whose shown text changed gets a brief wash. Reduced motion: the
+// final text at once, no wash.
+const lastShown = new Map(); // key -> value
+const rolling = new WeakMap(); // node -> start time of its latest roll, so an older roll stops writing
+export function countUp(node, value, format, key) {
+  const before = key === undefined ? undefined : lastShown.get(key);
+  if (key !== undefined) lastShown.set(key, value);
+  const text = show(value, format);
+  const still = reducedMotion();
+  if (before !== undefined && show(before, format) !== text && !still) {
+    node.classList.remove("moved");
+    void node.offsetWidth; // restarts the wash on a figure that is reused
+    node.classList.add("moved");
+    node.addEventListener("animationend", () => node.classList.remove("moved"), { once: true });
+  }
+  const from = Number.isFinite(before) ? before : 0;
+  if (!Number.isFinite(value) || still || format.format(from) === text) {
+    rolling.delete(node);
+    node.textContent = text;
     return;
   }
   const started = performance.now();
+  rolling.set(node, started);
   const step = (now) => {
+    if (rolling.get(node) !== started) return;
     const k = Math.min(1, (now - started) / 700);
-    node.textContent = format.format(value * (1 - (1 - k) ** 3));
+    node.textContent = format.format(from + (value - from) * (1 - (1 - k) ** 3));
     if (k < 1) requestAnimationFrame(step);
   };
-  node.textContent = format.format(0);
+  node.textContent = format.format(from);
   requestAnimationFrame(step);
 }
 

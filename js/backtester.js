@@ -160,6 +160,7 @@ function applyPreset(months) {
 }
 
 // Loading
+let loads = 0; // counts loads, so only the latest one un-fades the results
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   const keep = keepPeriod; // only the benchmark changed (benchChanged)
@@ -204,11 +205,14 @@ form.addEventListener("submit", async (event) => {
   const button = form.querySelector("button[type=submit]");
   button.disabled = true;
   $("bt-skeleton").hidden = !$("results").hidden;
+  const ticket = ++loads;
+  $("results").setAttribute("aria-busy", "true"); // results already on screen fade until the new ones are drawn below
   say(`Loading ${lines.map((l) => l.label).join(", ")}…`);
   const wanted = [...new Set([...lines.flatMap((l) => l.tickers), ...bench.tickers])];
   const loaded = await Promise.allSettled(wanted.map(fetchPrices));
   button.disabled = false;
   $("bt-skeleton").hidden = true;
+  if (ticket === loads) $("results").setAttribute("aria-busy", "false"); // a later load still running keeps it faded
   const prices = {};
   const errors = {};
   wanted.forEach((t, i) => {
@@ -1024,14 +1028,14 @@ function drawSummary(windows, stats) {
   const versus = windows.length === 2;
   const sides = windows.map((w, i) => {
     const big = Object.assign(element("strong"), { className: "big" });
-    countUp(big, stats[i].finalValue, money);
+    countUp(big, stats[i].finalValue, money, `bt|${w.label}|finalValue`);
     // The gain in dollars and percent under the ending value, and where it started from.
     const gain = stats[i].finalValue - START_VALUE;
     const change = Object.assign(element("p", `${withSign(gain, moneyFit)} (${withSign(stats[i].totalReturn, pct)})`), { className: `change ${gain > 0 ? "gain" : gain < 0 ? "loss" : ""}` });
     const from = Object.assign(element("p", `from ${money.format(START_VALUE)} on ${longDate(w.points[0].date)}`), { className: "from" });
     const facts = rows.map(([label, key, format, better]) => {
       const value = element("dd");
-      countUp(value, stats[i][key], format);
+      countUp(value, stats[i][key], format, `bt|${w.label}|${key}`);
       const other = versus ? stats[1 - i][key] : NaN;
       if (Number.isFinite(other) && Number.isFinite(stats[i][key]) && (stats[i][key] - other) * better > 0) value.classList.add("win");
       return element("div", element("dt", term(label)), value);

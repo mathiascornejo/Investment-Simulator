@@ -1,10 +1,10 @@
 // Portfolio creator tab: edit and save portfolios, and show a profile of the saved one.
 import { fetchPrices, PROXY_URL, inflation } from "./data.js";
-import { summarize, correlation, windowOf, dailyReturns, totalReturn, cagr, volatility, maxDrawdown } from "./stats.js";
-import { REBALANCE_RULES, loadPortfolios, savePortfolios, portfolioSeries, portfolioProblem, readPortfolio, freeName, riskShares, effectiveHoldings, diversificationRatio } from "./portfolios.js";
+import { summarize, correlation, windowOf, dailyReturns, totalReturn, cagr, volatility, maxDrawdown, withDeposits, xirr } from "./stats.js";
+import { REBALANCE_RULES, UNREADABLE_KEY, loadPortfolios, savePortfolios, portfolioSeries, portfolioIssue, readPortfolio, freeName, riskShares, effectiveHoldings, diversificationRatio } from "./portfolios.js";
 import { attachTickerSearch } from "./ticker-search.js";
-import { dropdown, liveField } from "./fields.js";
-import { pct, num, longDate, show, element } from "./format.js";
+import { dropdown, liveField, flagField } from "./fields.js";
+import { pct, num, money, longDate, show, element } from "./format.js";
 import { COLORS, frame, addToCompare } from "./backtester.js";
 import { glyph, assetClass, countUp, toast, sparkline } from "./visuals.js";
 import { term } from "./glossary.js";
@@ -48,9 +48,12 @@ let editing = ""; // name of the saved portfolio in the form; "" while creating 
 let snapshot = ""; // the form as last loaded or saved, to tell when it has unsaved changes
 let treemap; // ECharts instance, created the first time a profile is shown
 let nameIds = 0; // numbers each holding row's name label
+let profileLoads = 0; // counts profile loads, so only the latest one un-fades the profile
+let depositPoints = null; // the shown profile's portfolio series, for the deposits figures
 
 const showEmpty = () => ($("creator-empty").hidden = loadPortfolios().length > 0);
 addEventListener("portfolios-changed", showEmpty);
+addEventListener("portfolios-changed", () => fillPicker()); // a save in another browser tab shows up here too
 
 function say(text, isError = false, node = status) {
   node.textContent = text;
@@ -170,6 +173,7 @@ function fillPicker() {
     ...loadPortfolios().map((p) => new Option(p.name, p.name)),
   );
   picker.value = editing;
+  if (picker.selectedIndex < 0) picker.value = ""; // deleted in another browser tab
 }
 
 // Puts a portfolio into the form: a saved one (with its profile), an unsaved one (a model), or none (a blank example).
@@ -185,7 +189,8 @@ function edit(portfolio, saved = Boolean(portfolio)) {
   $("trade-cost").value = portfolio?.cost ?? 0;
   $("band-field").hidden = $("rebalance").value !== "band";
   $("delete-portfolio").hidden = $("copy-portfolio").hidden = !saved;
-  $("profile").hidden = true;
+  // The same portfolio again (saved again, or reloaded) keeps its profile on screen, faded, until the new one is drawn.
+  if (!saved || $("profile-title").textContent !== portfolio.name) $("profile").hidden = true;
   showEmpty();
   say("");
   snapshot = formState();
@@ -210,7 +215,7 @@ function guard(open) {
   setTimeout(() => keep.focus()); // after the menu that was used takes focus back
 }
 
-// Returns the portfolio in the form, or a message saying what to fix.
+// Returns the portfolio in the form, or { problem, input }: what to fix, and the box to point at.
 // copy: save under a free name ("Growth (copy)") when the name is taken, leaving the original alone.
 function readForm(copy = false) {
   const taken = loadPortfolios().map((p) => p.name);
@@ -222,9 +227,25 @@ function readForm(copy = false) {
     band: Number($("band").value),
     cost: Number($("trade-cost").value),
   };
-  const problem = portfolioProblem(portfolio);
-  if (problem) return problem;
-  if (portfolio.name !== editing && taken.includes(portfolio.name)) return `You already have a portfolio called ${name}. Pick another name.`;
+  const issue = portfolioIssue(portfolio);
+  if (issue) {
+    const rows = $("holdings").children;
+    const inputs = (i) => rows[i].querySelectorAll("input"); // [ticker, weight]
+    const input = {
+      name: () => $("portfolio-name"),
+      holdings: () => $("add-holding"),
+      ticker: () => inputs(issue.holding)[0],
+      weight: () => inputs(issue.holding)[1],
+      total: () => inputs(rows.length - 1)[1],
+      rebalance: () => $("rebalance").nextElementSibling.querySelector("button"),
+      band: () => $("band"),
+      cost: () => $("trade-cost"),
+    }[issue.field]();
+    const ticker = portfolio.holdings[issue.holding]?.ticker;
+    const which = issue.field === "ticker" || issue.field === "weight" ? ` Check holding ${issue.holding + 1}${ticker ? `, ${ticker}` : ""}.` : "";
+    return { problem: issue.message + which, input };
+  }
+  if (portfolio.name !== editing && taken.includes(portfolio.name)) return { problem: `You already have a portfolio called ${name}. Pick another name.`, input: $("portfolio-name") };
   return portfolio;
 }
 
@@ -266,7 +287,10 @@ $("copy-portfolio").addEventListener("click", (event) => save(event.currentTarge
 
 async function save(button, copy = false) {
   const portfolio = readForm(copy);
-  if (typeof portfolio === "string") return say(portfolio, true);
+  if (portfolio.problem) {
+    say(portfolio.problem, true);
+    return flagField(portfolio.input);
+  }
   const original = editing; // before the wait: another portfolio may be opened meanwhile
 
   // Loading the prices proves every ticker exists before anything is saved. Names missing from the rows are looked up meanwhile.
@@ -279,15 +303,22 @@ async function save(button, copy = false) {
   ]);
   buttons.forEach((b) => (b.disabled = false));
   const failed = portfolio.holdings.filter((_, i) => loaded[i].status === "rejected").map((h) => h.ticker);
-  if (failed.length) return say(`Not saved. No price data was found for ${failed.join(", ")}.`, true);
+  if (failed.length) {
+    say(`Not saved. No price data was found for ${failed.join(", ")}.`, true);
+    const row = [...$("holdings").children].find((r) => r.querySelector("input").value.trim().toUpperCase() === failed[0]);
+    return row && flagField(row.querySelector("input"));
+  }
   portfolio.holdings.forEach((h, i) => { if (found[i]) h.name = found[i]; });
 
-  savePortfolios([...loadPortfolios().filter((p) => copy || p.name !== original), portfolio]);
+  if (!savePortfolios([...loadPortfolios().filter((p) => copy || p.name !== original), portfolio])) return say(REFUSED, true);
   edit(portfolio);
   say(copy ? `Saved a copy as ${portfolio.name}. ${original} is unchanged.` : `Saved ${portfolio.name}. It is now available in the Backtester.`);
   flashSaved(button);
   toast(`Saved ${portfolio.name}`, "Open in Backtester", () => addToCompare(portfolio.name));
 }
+
+// What to say when the browser won't store portfolios (storage full, or switched off for the site).
+const REFUSED = "Not saved: this browser didn't let the site store it. Its storage may be full or switched off. Use Download my portfolios below to keep the others in a file.";
 
 // For a moment the button itself says "Saved", with the tick the fields draw.
 function flashSaved(button) {
@@ -309,12 +340,12 @@ $("delete-portfolio").addEventListener("click", () => {
   const at = saved.findIndex((p) => p.name === editing);
   if (at === -1) return;
   const [removed] = saved.splice(at, 1);
-  savePortfolios(saved);
+  if (!savePortfolios(saved)) return say("Not deleted: this browser didn't let the site change its saved portfolios.", true);
   edit();
   toast(`Deleted ${removed.name}`, "Undo", () => {
     const now = loadPortfolios().filter((p) => p.name !== removed.name);
     now.splice(at, 0, removed);
-    savePortfolios(now);
+    if (!savePortfolios(now)) return say(`${removed.name} couldn't be restored: this browser didn't let the site store it.`, true);
     if (dirty()) {
       fillPicker(); // don't overwrite what has been typed since
       return say(`Restored ${removed.name}. Pick it from the Portfolio menu to open it.`);
@@ -330,11 +361,38 @@ $("backup-portfolios").addEventListener("click", () => {
   const saved = loadPortfolios();
   if (!saved.length) return say("You have no saved portfolios to download yet.", false, backupStatus);
   const file = `portfolios-${new Date().toISOString().slice(0, 10)}.json`;
-  const url = URL.createObjectURL(new Blob([JSON.stringify(saved, null, 2)], { type: "application/json" }));
-  Object.assign(element("a"), { href: url, download: file }).click();
-  setTimeout(() => URL.revokeObjectURL(url)); // after the download has started
+  download(JSON.stringify(saved, null, 2), file, "application/json");
   say(`Downloaded ${saved.length} portfolio${saved.length === 1 ? "" : "s"} as ${file}.`, false, backupStatus);
 });
+
+function download(text, file, type) {
+  const url = URL.createObjectURL(new Blob([text], { type }));
+  Object.assign(element("a"), { href: url, download: file }).click();
+  setTimeout(() => URL.revokeObjectURL(url)); // after the download has started
+}
+
+// Saved portfolios that couldn't be read are kept aside (see loadPortfolios). Say so and offer them as a file;
+// the kept copy can be removed only after it has been downloaded.
+function showUnreadable() {
+  let raw = null;
+  try { raw = localStorage.getItem(UNREADABLE_KEY); } catch {}
+  const note = $("unreadable");
+  if (raw === null) return note.replaceChildren();
+  const button = (text, onClick) => Object.assign(element("button", text), { type: "button", className: "quiet", onclick: onClick });
+  const remove = button("Remove the kept copy", () => {
+    try { localStorage.removeItem(UNREADABLE_KEY); } catch {}
+    note.replaceChildren();
+    say("Removed the unreadable copy.", false, backupStatus);
+  });
+  note.replaceChildren(
+    element("span", "Your saved portfolios in this browser couldn't be read, so this page started with none. A copy of them is kept here."),
+    button("Download the copy", () => {
+      download(raw, `portfolios-unreadable-${new Date().toISOString().slice(0, 10)}.txt`, "text/plain");
+      note.replaceChildren(element("span", "Downloaded the unreadable copy. Keep the file, then remove the copy from this browser if you like."), remove);
+    }),
+  );
+}
+addEventListener("portfolios-changed", showUnreadable);
 
 $("restore-portfolios").addEventListener("click", () => $("restore-file").click());
 $("restore-file").addEventListener("change", async () => {
@@ -363,11 +421,7 @@ $("restore-file").addEventListener("change", async () => {
       added.push(portfolio);
     }
   }
-  try {
-    if (added.length) savePortfolios([...saved, ...added]);
-  } catch {
-    return say("Nothing was added: this browser's storage for the site is full.", true, backupStatus);
-  }
+  if (added.length && !savePortfolios([...saved, ...added])) return say("Nothing was added: this browser didn't let the site store them. Its storage may be full or switched off.", true, backupStatus);
   fillPicker();
   const plural = (n) => `${n} portfolio${n === 1 ? "" : "s"}`;
   say(
@@ -382,13 +436,25 @@ $("restore-file").addEventListener("change", async () => {
 });
 
 // The profile of a saved portfolio
+// A profile already on screen fades while the new one loads.
 async function showProfile(portfolio) {
+  const ticket = ++profileLoads;
+  $("profile").setAttribute("aria-busy", "true");
+  try {
+    await drawProfile(portfolio);
+  } finally {
+    if (ticket === profileLoads) $("profile").setAttribute("aria-busy", "false");
+  }
+}
+
+async function drawProfile(portfolio) {
   const tickers = [...new Set([...portfolio.holdings.map((h) => h.ticker), BENCHMARK])];
   let loaded, found;
   try {
     // Names are looked up for holdings saved before names were kept (nameOf never fails).
     [loaded, found] = await Promise.all([Promise.all(tickers.map(fetchPrices)), Promise.all(portfolio.holdings.map((h) => h.name || nameOf(h.ticker)))]);
   } catch (error) {
+    if (editing === portfolio.name) $("profile").hidden = true; // don't leave an older profile looking current
     return say(`The profile couldn't be loaded: ${error.message}`, true);
   }
   if (editing !== portfolio.name) return; // another portfolio was opened while this one loaded
@@ -396,7 +462,10 @@ async function showProfile(portfolio) {
   const prices = Object.fromEntries(tickers.map((t, i) => [t, loaded[i]]));
   const run = portfolioSeries(portfolio, prices);
   const { points } = run;
-  if (points.length < 3) return say("These holdings have no dates in common, so the portfolio can't be measured.", true);
+  if (points.length < 3) {
+    $("profile").hidden = true;
+    return say("These holdings have no dates in common, so the portfolio can't be measured.", true);
+  }
 
   // Colour follows the holding's place in the portfolio, as in the Backtester.
   const colored = portfolio.holdings.map((h, i) => ({ ...h, color: COLORS[i % COLORS.length] }));
@@ -426,6 +495,8 @@ async function showProfile(portfolio) {
   $("profile-trading").textContent = tradingNote(portfolio, run);
   drawCorrelation(colored, aligned, weights, returns);
   drawRules(portfolio, prices);
+  depositPoints = points;
+  drawDeposits();
   $("profile").hidden = false;
   drawTreemap(sorted);
 }
@@ -437,10 +508,12 @@ const swatch = (color) => {
 };
 const and = (items) => new Intl.ListFormat("en").format(items); // "A, B and C"
 
-// One figure: its label, the number (rolling up), and an optional small line beneath.
-function fact(label, value, format, note) {
+// One figure: its label, the number (rolling from the value shown before for this portfolio), and an optional
+// small line beneath. signed: green for a gain, red for a loss.
+function fact(label, value, format, note, signed = false) {
   const dd = element("dd");
-  countUp(dd, value, format);
+  countUp(dd, value, format, `profile|${editing}|${label}`);
+  if (signed && Number.isFinite(value) && format.format(value) !== format.format(0)) dd.classList.add(value < 0 ? "loss" : "gain");
   return element("div", element("dt", term(label)), dd, ...(note ? [Object.assign(element("dd", note), { className: "note" })] : []));
 }
 
@@ -504,15 +577,59 @@ function riskNote(holdings) {
 // Return and risk figures in two rows, each with SPY's figure over the same dates beneath it (when SPY has them).
 function drawFacts(stats, spy) {
   const rows = [
-    ["Return", [["Annualised return", "cagr", pct], ["Best year", "bestYear", pct], ["Worst year", "worstYear", pct]]],
+    ["Return", [["Annualised return", "cagr", pct, true], ["Best year", "bestYear", pct, true], ["Worst year", "worstYear", pct, true]]],
     ["Risk", [["Volatility (annualised)", "volatility", pct], ["Maximum drawdown", "maxDrawdown", pct], [`Beta vs ${BENCHMARK}`, "beta", num], ["Sharpe ratio", "sharpe", num]]],
   ];
   $("facts").replaceChildren(
     ...rows.map(([title, facts]) => {
-      const list = Object.assign(element("dl", ...facts.map(([label, key, format]) => fact(label, stats[key], format, spy && `${BENCHMARK} ${show(spy[key], format)}`))), { className: "facts" });
+      const list = Object.assign(element("dl", ...facts.map(([label, key, format, signed]) => fact(label, stats[key], format, spy && `${BENCHMARK} ${show(spy[key], format)}`, signed))), { className: "facts" });
       return Object.assign(element("div", element("h3", title), list), { className: "fact-row" });
     }),
   );
+}
+
+// Regular deposits: the user's own money through the measured period, and its money-weighted return beside the
+// portfolio's time-weighted one. Redrawn as the two boxes change; no prices are loaded.
+function drawDeposits() {
+  const points = depositPoints;
+  if (!points) return;
+  const [start, monthly] = [$("dep-start"), $("dep-monthly")];
+  const facts = $("dep-facts");
+  const note = $("dep-note");
+  if ([start, monthly].some((box) => box.value === "" || !box.validity.valid)) {
+    facts.replaceChildren();
+    note.textContent = "Fix the amounts above to see the figures.";
+    return;
+  }
+  const [first, each] = [Number(start.value), Number(monthly.value)];
+  if (first === 0 && each <= 0) {
+    facts.replaceChildren();
+    note.textContent = "Put in a starting amount or a monthly deposit to see the figures.";
+    return;
+  }
+  const d = withDeposits(points, first, each);
+  const fund = cagr(points);
+  const yours = fund === null ? null : xirr(d.flows);
+  // Two rows, as in Risk and Return: the money, then the two yearly returns side by side.
+  const row = (title, ...items) => Object.assign(element("div", element("h3", title), Object.assign(element("dl", ...items), { className: "facts" })), { className: "fact-row" });
+  facts.replaceChildren(
+    row(
+      "Money",
+      fact("Ending balance", d.final, money),
+      fact("Paid in", d.paidIn, money),
+      ...(d.takenOut ? [fact("Taken out", d.takenOut, money)] : []),
+      fact("Gain", d.final + d.takenOut - d.paidIn, money, null, true),
+    ),
+    row("Return per year", fact("Time-weighted return", fund, pct, "The portfolio's", true), fact("Money-weighted return", yours, pct, "Yours", true)),
+  );
+  const ranOut = d.final === 0 && each < 0 ? " The withdrawals used up all the money before the end." : "";
+  const real = inflation.real ? " Amounts are in today's dollars." : "";
+  note.textContent = (
+    fund === null ? "There is less than a year of history, so neither return is given per year."
+    : yours === null ? "No yearly rate fits these amounts, so your own return can't be worked out."
+    : each === 0 ? "With nothing paid in or taken out after the start, your return and the portfolio's are the same."
+    : `Your money earned ${pct.format(yours)} a year, against the portfolio's ${pct.format(fund)}. The portfolio's return ignores when money went in or came out. Yours counts each amount only while it was invested, so the years when more of your money was in count for more.`
+  ) + ranOut + real;
 }
 
 // The same holdings and dates under every rebalancing rule, with the saved rule marked. One holding never trades.
@@ -659,6 +776,10 @@ dropdown($("start-from"), {
 });
 liveField($("band"), { compact: true });
 liveField($("trade-cost"), { compact: true });
+liveField($("dep-start"), { format: (v) => `${money.format(v)} at the start` });
+liveField($("dep-monthly"), { format: (v) => (v > 0 ? `${money.format(v)} paid in each month` : v < 0 ? `${money.format(-v)} taken out each month` : "Nothing paid in or taken out") });
+for (const id of ["dep-start", "dep-monthly"]) $(id).addEventListener("input", drawDeposits);
 edit();
+showUnreadable();
 
 addEventListener("inflation-changed", () => { const p = loadPortfolios().find((x) => x.name === editing); if (p) showProfile(p); });

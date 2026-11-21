@@ -2,11 +2,11 @@
 // The maths lives in montecarlo.js; this file is inputs, loading and drawing.
 import { fetchPrices, inflation } from "./data.js";
 import { attachTickerSearch } from "./ticker-search.js";
-import { dropdown, liveField } from "./fields.js";
+import { dropdown, liveField, flagField } from "./fields.js";
 import { periodReturns } from "./stats.js";
 import { loadPortfolios, portfolioSeries } from "./portfolios.js";
 import { simulate, crisisTest, historicalRun, crisisMonths, failureYears, logStats, everyStart, shareAtOrBelow, percentile, withStandIns, standIns, CRISES } from "./montecarlo.js";
-import { pct, moneyFit, moneyCompact, longDate, monthLabel, element } from "./format.js";
+import { pct, money, moneyFit, moneyCompact, longDate, monthLabel, element } from "./format.js";
 import { frame } from "./backtester.js";
 import { gauge, countUp, reducedMotion } from "./visuals.js";
 import { term } from "./glossary.js";
@@ -29,7 +29,19 @@ const $ = (id) => document.getElementById(id);
 attachTickerSearch($("mc-ticker"));
 $("mc-ticker").placeholder = "Add a ticker";
 $("mc-ticker").addEventListener("input", (e) => { e.target.value = e.target.value.replace(/[^A-Za-z0-9.\-]/g, ""); }); // same as the Backtester box
-for (const id of ["mc-start", "mc-withdrawal", "mc-growth", "mc-contribution", "mc-fee", "mc-years"]) liveField($(id));
+// Money boxes read the amount back with commas once it is valid.
+const yearly = (v) => `${money.format(v)} a year`;
+const formats = { "mc-start": (v) => money.format(v), "mc-withdrawal": yearly, "mc-contribution": yearly };
+for (const id of ["mc-start", "mc-withdrawal", "mc-growth", "mc-contribution", "mc-fee", "mc-years"]) liveField($(id), { format: formats[id] });
+// What each box needs, said in the status line when a run is refused (the box itself is pointed at too).
+const NEEDS = {
+  "mc-start": "Check the starting amount: from $1 to $1 trillion.",
+  "mc-withdrawal": "Check the withdrawal per year: from $0 to $1 trillion.",
+  "mc-growth": "Check how much withdrawals rise each year: from 0% to 20%.",
+  "mc-contribution": "Check the contribution per year: from $0 to $1 trillion.",
+  "mc-fee": "Check the fee per year: from 0% to 10%.",
+  "mc-years": "Check the years to simulate: a whole number from 1 to 60.",
+};
 const form = $("mc-form");
 const status = $("mc-status");
 const rate = new Intl.NumberFormat(undefined, { style: "percent", maximumFractionDigits: 1 });
@@ -112,11 +124,32 @@ function simulateAway(input) {
   }
 }
 
+// Results already on screen fade while a new run loads and runs; only the latest run un-fades them.
+let launches = 0;
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
+  const ticket = ++launches;
+  $("mc-results").setAttribute("aria-busy", "true");
+  try {
+    await run();
+  } finally {
+    if (ticket === launches) $("mc-results").setAttribute("aria-busy", "false");
+  }
+});
+
+async function run() {
   const portfolio = loadPortfolios().find((p) => p.name === $("mc-portfolio").value);
   const ticker = $("mc-ticker").value.trim().toUpperCase();
-  if (!portfolio && !/^[A-Z0-9.-]{1,12}$/.test(ticker)) return say("Enter a ticker made of letters, digits, dots or dashes.", true);
+  if (!portfolio && !/^[A-Z0-9.-]{1,12}$/.test(ticker)) {
+    say("Check the ticker: letters, digits, dots or dashes, up to 12.", true);
+    return flagField($("mc-ticker"));
+  }
+  // The boxes' own rules (min, max, whole years) decide; an empty box counts as wrong.
+  const wrong = Object.keys(NEEDS).find((id) => $(id).value === "" || !$(id).validity.valid);
+  if (wrong) {
+    say(NEEDS[wrong], true);
+    return flagField($(wrong));
+  }
   const startValue = Number($("mc-start").value);
   const annualWithdrawal = Number($("mc-withdrawal").value);
   const growth = Number($("mc-growth").value) / 100;
@@ -128,10 +161,6 @@ form.addEventListener("submit", async (event) => {
   const method = $("mc-draw").value;
   const crisis = CRISES.find((c) => c.start === $("mc-begin").value);
   const rule = $("mc-rule").value;
-  const MAX = 1e12; // same cap as the inputs' max: bigger amounts add nothing and could overflow over 60 years
-  if (!(startValue > 0 && startValue <= MAX) || !(annualWithdrawal >= 0 && annualWithdrawal <= MAX) || !(annualContribution >= 0 && annualContribution <= MAX) || !(growth >= 0 && growth <= 0.2) || !(fee >= 0 && fee <= 0.1) || !(Number.isInteger(years) && years >= 1 && years <= 60)) {
-    return say("Check the amounts: a starting amount above 0 and a withdrawal and a contribution of 0 or more (all up to $1 trillion), a rise of 0 to 20%, a fee of 0 to 10%, and 1 to 60 whole years.", true);
-  }
 
   const name = portfolio ? portfolio.name : ticker;
   // Read now, before loading: the form can change while prices load.
@@ -216,7 +245,7 @@ form.addEventListener("submit", async (event) => {
   $("mc-pin-status").textContent = "";
   drawPin();
 
-  countUp($("mc-failure"), failureRate, rate);
+  countUp($("mc-failure"), failureRate, rate, "mc|failure");
   $("mc-failure-label").textContent = `of ${runs.toLocaleString()} runs ran out of money within ${years} ${years === 1 ? "year" : "years"}`;
   $("mc-lasted").textContent = `The dial shows the other ${rate.format(1 - failureRate)}: runs that lasted.`;
   // The needle swings from empty to the result once the dial is on screen.
@@ -230,7 +259,7 @@ form.addEventListener("submit", async (event) => {
   $("mc-tiles").replaceChildren(
     ...tiles.map(([label, value]) => {
       const dd = element("dd");
-      countUp(dd, value, moneyFit);
+      countUp(dd, value, moneyFit, `mc|${label}`);
       return element("div", element("dt", label.includes("percentile") ? term(label, "percentile") : label), dd);
     }),
   );
@@ -276,7 +305,7 @@ form.addEventListener("submit", async (event) => {
   drawTiming(ranOut, runs, years);
   drawRates(result, plan, runs, years);
   drawStarts(months, name, years, plan);
-});
+}
 
 // A run's settings in words, in a fixed order: `value` for the kept-run comparison, `tag` (when worth showing) for the
 // row of tags above the results.
@@ -669,6 +698,8 @@ function drawCone({ bands, paths, startValue }, kept) {
 
 // A table cell with a main line and smaller lines under it.
 const cell = (main, ...details) => element("td", main, ...details.map((detail) => element("small", detail)));
+// A fall or a run that ran out, in loss red. The amounts left stay in ink.
+const lossText = (text, isLoss = true) => Object.assign(element("span", text), { className: isLoss ? "loss" : "" });
 
 // `points` and `benchmark` include stand-in history; `notes` says where (see standInNotes) and which stand-ins didn't load.
 function drawCrises(points, benchmark, plan, notes) {
@@ -693,10 +724,10 @@ function drawCrises(points, benchmark, plan, notes) {
     return element(
       "tr",
       title,
-      cell(pct.format(test.lowest), `on ${longDate(test.lowDate)}`),
-      spy ? cell(pct.format(spy.lowest), `on ${longDate(spy.lowDate)}`, ...spyUsed) : cell("No data", `${BENCHMARK}'s history starts on ${longDate(benchmark[0].date)}`),
+      cell(lossText(pct.format(test.lowest), test.lowest < 0), `on ${longDate(test.lowDate)}`),
+      spy ? cell(lossText(pct.format(spy.lowest), spy.lowest < 0), `on ${longDate(spy.lowDate)}`, ...spyUsed) : cell("No data", `${BENCHMARK}'s history starts on ${longDate(benchmark[0].date)}`),
       test.recovered ? cell(longDate(test.recovered), `${yearsToRecover} years after the start`) : cell("Not yet", `as of ${longDate(last)}`),
-      run.ranOutIn ? cell(`Ran out in ${monthLabel(run.ranOutIn)}`) : cell(`${moneyFit.format(run.final)} left`, `on ${longDate(last)}`),
+      run.ranOutIn ? cell(lossText(`Ran out in ${monthLabel(run.ranOutIn)}`)) : cell(`${moneyFit.format(run.final)} left`, `on ${longDate(last)}`),
     );
   });
   $("mc-crises").replaceChildren(

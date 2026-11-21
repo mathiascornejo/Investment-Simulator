@@ -12,7 +12,8 @@ const make = (tag, className, html = "") => Object.assign(document.createElement
 // Live feedback on a ticker or number input. Number rules come from its min / max / step attributes.
 // compact: no hint line and no tick (for narrow inputs); a problem still turns the box red and shows as a tooltip.
 // clear: an ✕ button that empties the box.
-export function liveField(input, { compact = false, clear = false, ticker = input.classList.contains("ticker") } = {}) {
+// format: turns a valid number into the line under the box ("$1,000,000"), so big amounts read at a glance.
+export function liveField(input, { compact = false, clear = false, ticker = input.classList.contains("ticker"), format } = {}) {
   const isNumber = input.type === "number";
   const box = make("span", "fx" + (clear ? " has-clear" : "") + (compact ? "" : " has-tick"));
   input.before(box);
@@ -49,7 +50,7 @@ export function liveField(input, { compact = false, clear = false, ticker = inpu
     const v = input.value.trim();
     if (isNumber) {
       if (!v && !input.validity.badInput) return null;
-      if (input.validity.valid) return [true, hint];
+      if (input.validity.valid) return [true, format ? format(Number(v)) : hint];
       return [false, input.validity.stepMismatch ? "Use a whole number" : `Use a number ${range}`];
     }
     if (!ticker || !v) return null;
@@ -75,8 +76,23 @@ export function liveField(input, { compact = false, clear = false, ticker = inpu
   input.addEventListener("input", run);
   input.addEventListener("focusout", run);
   box.addEventListener("animationend", () => box.classList.remove("shake"));
-  if (note) note.textContent = hint;
+  // A starting value that is fine is read back at once (no tick until the box is used).
+  if (note) note.textContent = format && input.value !== "" && input.validity.valid ? format(Number(input.value)) : hint;
   box.classList.toggle("has-value", input.value !== "");
+}
+
+// Points at the box that stopped a form: scrolls it into view, focuses it, and shakes it red like a failed live
+// check. A live field clears the red itself once its value is fine; any other box clears it on the next edit.
+export function flagField(input) {
+  const box = input.closest(".fx") ?? input;
+  box.classList.remove("shake");
+  void box.offsetWidth; // restart the animation
+  box.classList.add("bad", "shake");
+  box.addEventListener("animationend", () => box.classList.remove("shake"), { once: true });
+  if (input.matches("input")) input.setAttribute("aria-invalid", "true"); // a button (Add holding) is only focused
+  if (box === input) input.addEventListener("input", () => { input.classList.remove("bad"); input.removeAttribute("aria-invalid"); }, { once: true });
+  input.scrollIntoView({ block: "center", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+  input.focus({ preventScroll: true });
 }
 
 // Replaces <select> with a menu. help: { optionValue: "explanation" } shows the chosen option's explanation

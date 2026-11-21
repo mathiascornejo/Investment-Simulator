@@ -229,11 +229,11 @@
       </div>
     </section>
 
-    <section id="creator">
+    <section id="creator" hidden>
       <h1>Portfolio Creator</h1>
       <p class="lede">Build a portfolio from stocks, bonds, funds and commodities. Set its weights and rebalancing rule, then compare it in the Backtester.</p>
 
-      <form id="portfolio-form" class="panel">
+      <form id="portfolio-form" class="panel" novalidate>
         <div class="field">
           <label for="portfolio-pick">Portfolio</label>
           <select id="portfolio-pick"></select>
@@ -316,6 +316,22 @@
           <div id="facts"></div>
           <p id="profile-trading" class="hint"></p>
         </div>
+        <div class="block">
+          <h2>Regular Deposits</h2>
+          <p class="hint">Your own money in this portfolio over the measured period: a starting amount, then a monthly amount on the first trading day of each month. A negative monthly amount is a withdrawal.</p>
+          <div class="field-grid deposit-fields">
+            <div>
+              <label for="dep-start">Starting amount ($)</label>
+              <input type="number" id="dep-start" value="10000" min="0" max="1000000000" step="any">
+            </div>
+            <div>
+              <label for="dep-monthly">Each month ($)</label>
+              <input type="number" id="dep-monthly" value="500" min="-1000000000" max="1000000000" step="any">
+            </div>
+          </div>
+          <div id="dep-facts"></div>
+          <p id="dep-note" class="hint" aria-live="polite"></p>
+        </div>
         <div class="block" id="rules-block">
           <h2><span data-term="rebalancing">Rebalancing Rules Compared</span></h2>
           <p class="hint">The same holdings over the same dates, under each rule.</p>
@@ -336,14 +352,15 @@
           <input type="file" id="restore-file" accept=".json,application/json" hidden>
         </div>
         <p id="backup-status" class="status" role="status"></p>
+        <div id="unreadable" class="notice" role="status"></div>
       </div>
     </section>
 
-    <section id="monte-carlo">
+    <section id="monte-carlo" hidden>
       <h1>Monte Carlo Simulation</h1>
       <p class="lede">Run thousands of possible futures for a portfolio to see how often the money runs out, and how it came through past crises.</p>
 
-      <form id="mc-form" class="panel">
+      <form id="mc-form" class="panel" novalidate>
         <div class="field-grid">
           <div>
             <label for="mc-portfolio">Portfolio</label>
@@ -488,7 +505,7 @@
       </div>
     </section>
 
-    <section id="glossary">
+    <section id="glossary" hidden>
       <h1>Glossary</h1>
       <p class="lede">Every term the simulator uses, in plain words. Where there is a formula, it is the one used here. Dotted words on the other pages open the same definitions.</p>
       <div class="glossary-find">
