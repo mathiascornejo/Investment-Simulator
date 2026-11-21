@@ -35,6 +35,7 @@ const CLASS_OF = {
   property: ["VNQ"],
   international: ["VXUS", "VEA", "VWO", "EFA"],
   cash: ["CASH", "TBILL91", "TBILL182", "TBILL364"],
+  inflation: ["INFLATION"],
   stocks: ["SPY", "VOO", "VTI", "QQQ", "IWM", "DIA", "XLK", "XLF", "XLE", "XLV", "VFINX", "VTSAX", "AAPL", "MSFT", "AMZN", "GOOGL", "META", "NVDA", "TSLA", "BRK-B", "JPM", "JNJ", "XOM", "KO"],
 };
 const ICONS = {
@@ -47,6 +48,7 @@ const ICONS = {
   fund: ["Fund", '<path d="M12 3v9h9"/><path d="M20.5 15A9 9 0 1 1 9 3.5"/>'],
   portfolio: ["Saved portfolio", '<path d="M12 3 2 8l10 5 10-5-10-5z"/><path d="m2 13 10 5 10-5"/>'],
   cash: ["Cash", '<rect x="3" y="6" width="18" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/>'],
+  inflation: ["Consumer prices", '<path d="M3 12V3h9l9 9-9 9z"/><circle cx="7.5" cy="7.5" r="1.5"/>'],
   tab: ["Tab", '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/>'],
   other: ["Listed security", '<circle cx="12" cy="12" r="8"/><path d="M12 8v8M8 12h8"/>'],
 };

@@ -1,6 +1,6 @@
 // Backtester tab: load tickers, pick a period, draw three charts and a statistics table.
 // All maths lives in stats.js; this file is fetching, state and drawing.
-import { fetchPrices } from "./data.js";
+import { fetchPrices, inflationNote } from "./data.js";
 import { attachTickerSearch } from "./ticker-search.js";
 import { windowOf, summarize, drawdowns, periodReturns, niceAxis, gapRange } from "./stats.js";
 import { loadPortfolios, portfolioSeries } from "./portfolios.js";
@@ -421,7 +421,7 @@ function gapCell(windows, [a, b], format, better) {
 // Price currency by market suffix (nothing is converted). Plain tickers are US listings.
 const CURRENCY = { L: "British pence", PS: "Philippine pesos", T: "Japanese yen", TO: "Canadian dollars", AX: "Australian dollars", HK: "Hong Kong dollars", SW: "Swiss francs", DE: "euros", PA: "euros", AS: "euros", MI: "euros", KS: "Korean won", NS: "Indian rupees", SI: "Singapore dollars" };
 function currencyOf(ticker) {
-  if (ticker === "CASH") return null; // no prices to speak of: it earns nothing
+  if (ticker === "CASH" || ticker === "INFLATION") return null; // no prices to speak of: it earns nothing, or it is an index
   if (ticker in TBILLS) return "Philippine pesos";
   const suffix = ticker.split(".")[1];
   return suffix ? CURRENCY[suffix] ?? `the local currency of the .${suffix} market` : "US dollars";
@@ -441,6 +441,7 @@ function drawDataNotes(lines, latestStarter) {
     if (currencies.length === 1) parts.push(`Priced in ${currencies[0]}.`);
     if (currencies.length > 1) parts.push(`Its holdings are priced in ${currencies.join(" and ")}, each left in its own currency.`);
     if (tickers.includes("CASH")) parts.push("Cash earns no interest.");
+    if (tickers.includes("INFLATION")) parts.push(inflationNote());
     if (bills.length) parts.push(`${listed(bills)} built from benchmark yields, earning the yield each day and ignoring price moves.`);
     if (raw.length) parts.push(`${listed(raw)} priced without dividends or splits, so returns understate what holders earned, and a split shows as a sudden fall.`);
     else if (tickers.some((t) => currencyOf(t) && !(t in TBILLS))) parts.push("Dividends are reinvested.");
