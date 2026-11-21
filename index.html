@@ -32,6 +32,8 @@
     <div class="realbar">
       <label class="real" title="Show returns in today's dollars, after inflation"><input type="checkbox" id="real-toggle" class="switch"> Inflation-adjusted</label>
       <input id="real-country" class="real-country" aria-label="Whose inflation" autocomplete="off" spellcheck="false" hidden>
+      <button type="button" id="real-info" class="real-info" popovertarget="real-note" aria-label="About these inflation figures" title="About these inflation figures" hidden>i</button>
+      <div id="real-note" class="pop real-note" popover></div>
     </div>
   </header>
 
@@ -41,6 +43,7 @@
       <a href="#backtester"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 6-7"/></svg>Backtester</a>
       <a href="#creator"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 2 8l10 5 10-5-10-5z"/><path d="m2 13 10 5 10-5"/></svg>Portfolio Creator</a>
       <a href="#monte-carlo"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="4"/><circle cx="8.5" cy="8.5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="15.5" cy="15.5" r="1"/></svg>Monte Carlo Simulation</a>
+      <a href="#glossary"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V5a2 2 0 0 1 2-2h14v14H6a2 2 0 0 0-2 2zm0 0a2 2 0 0 0 2 2h14"/></svg>Glossary</a>
     </nav>
   </aside>
   <!-- Under 60rem the menu floats over the page: this veil dims the page, and tapping it closes the menu. -->
@@ -464,6 +467,17 @@
           <p id="mc-crises-note" class="hint" hidden></p>
         </div>
       </div>
+    </section>
+
+    <section id="glossary">
+      <h1>Glossary</h1>
+      <p class="lede">Every term the simulator uses, in plain words. Where there is a formula, it is the one used here. Dotted words on the other pages open the same definitions.</p>
+      <div class="glossary-find">
+        <label for="glossary-filter">Find a term</label>
+        <input id="glossary-filter" type="search" autocomplete="off" spellcheck="false" placeholder="For example, drawdown">
+      </div>
+      <p id="glossary-count" class="status" role="status"></p>
+      <dl id="glossary-list" class="glossary"></dl>
     </section>
   </main>
 

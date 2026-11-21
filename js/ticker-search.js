@@ -1,7 +1,8 @@
 // Ticker search inside a text box, modelled on the King Crab House search: suggestions drop down
 // under the box as you type; ↑ ↓ Enter pick one, Esc closes.
 // Suggestions come only from Yahoo (via the proxy) plus the saved portfolios passed in as extra(); there is no local ticker list.
-import { PROXY_URL } from "./data.js";
+import { PROXY_URL, inflation } from "./data.js";
+import { countryName } from "./countries.js";
 import { glyph, assetClass } from "./visuals.js";
 // Adds suggestions to `input`. extra(): more [text, hint] entries listed before the tickers (saved portfolios).
 // shortcut: a portfolio name containing a comma is searched from after its last comma.
@@ -20,21 +21,43 @@ export function attachTickerSearch(input, { multi = false, extra = () => [], onP
   input.setAttribute("aria-autocomplete", "list");
   input.setAttribute("aria-expanded", "false");
 
-  let hits = [], at = 0, remote = [], remoteFor = "", timer;
+  // Screen readers hear "no matches" and "search isn't working" from here; the faint row in the list is for the eye.
+  const said = Object.assign(document.createElement("span"), { className: "visually-hidden" });
+  said.setAttribute("role", "status");
+  wrap.append(said);
+
+  let hits = [], at = 0, remote = [], remoteFor = "", failed = false, timer;
   const start = () => (multi ? input.value.search(/[^,\s]*$/) : 0); // where the entry being typed begins
   const typed = () => input.value.slice(start()).trim().toUpperCase();
   const rank = ([t], q) => (t.toUpperCase() === q ? 2 : t.toUpperCase().startsWith(q) ? 1 : 0); // exact, then prefix
   const foreign = ([t]) => t.includes(".") ? 1 : 0; // then the common (undotted, home-market) listing before foreign ones; ties keep Yahoo's relevance order
-  const close = () => { list.hidden = true; input.setAttribute("aria-expanded", "false"); };
+  const say = (text) => { if (said.textContent !== text) said.textContent = text; };
+  const close = () => { list.hidden = true; input.setAttribute("aria-expanded", "false"); say(""); };
+
+  // A faint last row: still searching (with a pulsing dot), nothing found, or search not working.
+  // With no suggestions to show, the list opens with this row alone.
+  function note(text, busy) {
+    list.querySelector(".note")?.remove();
+    say(busy ? "" : text);
+    if (!text) return;
+    if (list.hidden) { hits = []; list.replaceChildren(); list.hidden = false; } // never leave old, unseen rows behind for Enter to pick
+    const li = Object.assign(document.createElement("li"), { className: busy ? "note busy" : "note", textContent: text });
+    li.setAttribute("aria-hidden", "true");
+    list.append(li);
+  }
 
   function render() {
-    const q = input.value.slice(start()).trim().toUpperCase();
-    const mine = remoteFor === q ? remote : []; // name matches from Yahoo, for the text as typed now
-    hits = q ? [...[["CASH", "Cash · 0% return"], ["TBILL91", "PH T-bill, 91 days · BVAL 3M"], ["TBILL182", "PH T-bill, 182 days · BVAL 6M"], ["TBILL364", "PH T-bill, 364 days · BVAL 1Y"], ...extra()].filter(([t, name]) => t.toUpperCase().includes(q) || name.toUpperCase().includes(q)), ...mine]
+    const q = typed();
+    const answered = remoteFor === q;
+    const mine = answered ? remote : []; // name matches from Yahoo, for the text as typed now
+    hits = q ? [...[["CASH", "Cash · 0% return"], ["INFLATION", `Consumer prices · ${countryName(inflation.country)}`], ["TBILL91", "PH T-bill, 91 days · BVAL 3M"], ["TBILL182", "PH T-bill, 182 days · BVAL 6M"], ["TBILL364", "PH T-bill, 364 days · BVAL 1Y"], ...extra()].filter(([t, name]) => t.toUpperCase().includes(q) || name.toUpperCase().includes(q)), ...mine]
       .sort((a, b) => rank(b, q) - rank(a, q) || foreign(a) - foreign(b)).slice(0, 10) : [];
     if (q && /^[A-Z0-9.-]{1,12}$/.test(q) && !hits.some(([t]) => t.toUpperCase() === q)) hits[q.length <= 5 ? "unshift" : "push"]([q, "Use this ticker"]); // short text is likely a ticker: offer it first
+    const text = !q ? "" : !answered ? "Searching…" : failed ? "Search isn't working right now. Type the exact symbol." :
+      hits.length ? "" : `No matches for “${input.value.slice(start()).trim()}”. Try the ticker symbol.`;
     // A finished ticker still shows the list (exact match first) so a near miss can be corrected.
-    if (!hits.length) return close();
+    if (!hits.length && !text) return close();
+    if (!hits.length) { close(); return note(text, !answered); }
     at = Math.min(at, hits.length - 1);
     list.replaceChildren(...hits.map(([t, name, type], k) => {
       const li = document.createElement("li");
@@ -52,6 +75,7 @@ export function attachTickerSearch(input, { multi = false, extra = () => [], onP
     }));
     list.hidden = false;
     input.setAttribute("aria-expanded", "true");
+    note(text, !answered);
   }
 
   function choose(k) {
@@ -68,12 +92,17 @@ export function attachTickerSearch(input, { multi = false, extra = () => [], onP
 
   // Names aren't in the local list, so ask the proxy (Yahoo search) a moment after typing stops.
   function lookup() {
-    const q = input.value.slice(start()).trim().toUpperCase();
-    const done = () => { if (document.activeElement === input && input.value.slice(start()).trim().toUpperCase() === q) render(); };
-    fetch(`${PROXY_URL}/search?v=2&q=${encodeURIComponent(q)}`).then((r) => r.ok ? r.json() : []).then((rows) => {
-      remote = rows.map((x) => [x.symbol.toUpperCase(), [x.name, x.exchange].filter(Boolean).join(" · "), x.type]);
-      remoteFor = q;
-    }).catch(() => {}).then(done); // offline or blocked: fall back to the local list
+    const q = typed();
+    if (document.activeElement === input) note("Searching…", true); // under the rows already showing, so no local guess comes first
+    fetch(`${PROXY_URL}/search?v=2&q=${encodeURIComponent(q)}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((rows) => rows.map((x) => [x.symbol.toUpperCase(), [x.name, x.exchange].filter(Boolean).join(" · "), x.type]))
+      .catch(() => null) // offline, blocked, or Yahoo failed: the local list, plus a note
+      .then((rows) => {
+        if (typed() !== q) return; // the text changed meanwhile: a newer search is on its way
+        [remote, failed, remoteFor] = [rows ?? [], !rows, q];
+        if (document.activeElement === input) render();
+      });
   }
   // From 1 character the list waits for Yahoo (kept as it was meanwhile) so it never shows a local guess first.
   input.addEventListener("input", () => {
@@ -84,6 +113,8 @@ export function attachTickerSearch(input, { multi = false, extra = () => [], onP
   input.addEventListener("blur", close);
   input.addEventListener("keydown", (e) => {
     if (list.hidden) return;
+    if (e.key === "Escape") return close();
+    if (!hits.length) return; // only a note is showing
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
       at = (at + (e.key === "ArrowDown" ? 1 : -1) + hits.length) % hits.length;
@@ -93,11 +124,12 @@ export function attachTickerSearch(input, { multi = false, extra = () => [], onP
       if (!onPick && hits[at][0].toUpperCase() === typed()) return close();
       e.preventDefault();
       choose(at);
-    } else if (e.key === "Escape") close();
+    }
   });
   // mousedown, not click: the box would lose focus (and close the list) before a click lands
   list.addEventListener("mousedown", (e) => {
+    e.preventDefault(); // a press on the note row keeps the box focused too
     const li = e.target.closest("[data-k]");
-    if (li) { e.preventDefault(); choose(Number(li.dataset.k)); }
+    if (li) choose(Number(li.dataset.k));
   });
 }

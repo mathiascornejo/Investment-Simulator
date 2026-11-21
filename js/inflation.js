@@ -16,3 +16,16 @@ export function deflate(points, cpi) {
     return [{ date: p.date, adjClose: (p.adjClose * last) / index }];
   });
 }
+
+// The index itself as a price-like series on the dates of `points` (the INFLATION ticker), filled in exactly as deflate() does.
+export const priceIndex = (points, cpi) =>
+  deflate(points.map((p) => ({ date: p.date, adjClose: 1 })), cpi).map((p) => ({ date: p.date, adjClose: cpi.at(-1).value / p.adjClose }));
+
+// Figures for the note beside the inflation switch: the first and latest readings, the rise over the year to the latest
+// reading (null without a reading a year earlier), and the rise since 1 Jan 2000 (null if the readings start later).
+export function cpiFacts(cpi) {
+  const latest = cpi.at(-1);
+  const yearBefore = cpi.find((c) => c.date === `${latest.date.slice(0, 4) - 1}${latest.date.slice(4)}`);
+  const [since2000] = deflate([{ date: "2000-01-01", adjClose: 1 }], cpi); // latest index ÷ the index on that day
+  return { first: cpi[0].date, latest: latest.date, lastYear: yearBefore ? latest.value / yearBefore.value - 1 : null, since2000: since2000 ? since2000.adjClose - 1 : null };
+}
