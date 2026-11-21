@@ -63,6 +63,12 @@
           </div>
           <button type="submit">Compare</button>
         </div>
+        <div class="bench">
+          <label for="benchmark">Benchmark</label>
+          <input id="benchmark" value="SPY" autocomplete="off" spellcheck="false" aria-describedby="bench-help">
+          <label class="check"><input type="checkbox" id="show-bench"> Show on charts</label>
+          <p id="bench-help" class="hint">A ticker or saved portfolio. Beta and the other <span data-term="benchmark">benchmark</span> figures compare with it.</p>
+        </div>
       </form>
       <p id="compare-status" class="status" role="status"></p>
       <div id="bt-skeleton" class="skeleton" aria-hidden="true" hidden><i class="sk-row"></i><i class="sk-chart"></i><i class="sk-chart short"></i></div>
@@ -108,7 +114,8 @@
               <label class="check"><input type="checkbox" id="log-scale"> Log scale</label>
             </div>
           </div>
-          <p class="hint">Scroll over a chart to zoom, drag to move, drag the dates strip to stretch, double-click to reset.</p>
+          <p class="hint period-line"><span id="period-caption" aria-live="polite"></span> · <span data-term="how to zoom">How to zoom</span></p>
+          <p id="bench-note" class="hint" aria-live="polite"></p>
           <p id="crisis-note" class="hint" aria-live="polite"></p>
           <p id="growth-lead" class="takeaway"></p>
           <div id="growth-chart" class="chart chart-tall"></div>
@@ -154,6 +161,7 @@
         <div class="block">
           <h2><span data-term="drawdown">Drawdowns</span></h2>
           <p class="hint">Below 0% is below the previous high. The deepest point of each is pinned with its month.</p>
+          <p id="dd-guides" class="hint"></p>
           <p id="drawdown-lead" class="takeaway"></p>
           <div id="drawdown-chart" class="chart chart-short"></div>
           <h3 class="data-head">Deepest falls</h3>
@@ -172,6 +180,17 @@
             <span>−10%</span><span>−5%</span><span>0</span><span>+5%</span><span>+10%</span>
           </div>
           <p class="hint">Each shade covers 2.5 points of monthly return. The full-year column has its own wider scale: 10 points a shade, from −40% to +40%.</p>
+        </div>
+
+        <div class="block">
+          <div class="block-head">
+            <h2>How Returns Are Spread</h2>
+            <div id="spread-pick" class="segmented" role="group" aria-label="Show the spread of monthly returns for"></div>
+          </div>
+          <p class="hint">Each bar counts the full calendar months whose return fell in that 1-point range. The dark curve is a bell curve with the same average and <span data-term="volatility">volatility</span>. Months further out on either side than the curve allows are the fat tails that a volatility figure hides.</p>
+          <p id="spread-lead" class="takeaway" aria-live="polite"></p>
+          <div id="spread-chart" class="chart"></div>
+          <dl id="spread-facts" class="facts"></dl>
         </div>
 
         <div class="block">

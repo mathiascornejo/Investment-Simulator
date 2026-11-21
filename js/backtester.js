@@ -2,7 +2,7 @@
 // All maths lives in stats.js; this file is fetching, state and drawing.
 import { fetchPrices, inflationNote } from "./data.js";
 import { attachTickerSearch } from "./ticker-search.js";
-import { windowOf, summarize, drawdowns, periodReturns, niceAxis, gapRange, drawdownEpisodes, rollingReturns, holdingPeriods, spread, correlation } from "./stats.js";
+import { windowOf, summarize, drawdowns, periodReturns, niceAxis, gapRange, drawdownEpisodes, rollingReturns, holdingPeriods, spread, correlation, moments, histogram, normalCdf } from "./stats.js";
 import { loadPortfolios, portfolioSeries } from "./portfolios.js";
 import { CRISES } from "./montecarlo.js";
 import { TBILLS } from "./tbills.js";
@@ -10,7 +10,7 @@ import { pct, num, money, moneyCompact, moneyFit, longDate, monthLabel, show, el
 import { glyph, assetClass, countUp } from "./visuals.js";
 import { term } from "./glossary.js";
 
-const BENCHMARK = "SPY"; // beta is measured against this
+const DEFAULT_BENCHMARK = "SPY"; // what beta and the other relative figures compare with, unless the Benchmark box says otherwise
 const START_VALUE = 10000;
 const MAX_SERIES = 10; // one colour each; see COLORS
 // Fixed order, checked colour-blind safe on white. A colour belongs to a position in the
@@ -74,7 +74,10 @@ function renderChips(windows = []) {
 
 const state = {
   series: [], // [{ label, color, points }]: a ticker or a saved portfolio
-  benchmark: [],
+  benchName: DEFAULT_BENCHMARK, // a ticker or a saved portfolio's name
+  benchmark: [], // its whole price history ([] when it didn't load)
+  showBench: false, // draw it as a dashed grey line on the growth and drawdown charts
+  bench: null, // { label, color, points } over the period on show, when it covers the whole period
   min: "", // first date every asset has
   max: "", // last date every asset has
   start: "",
@@ -84,6 +87,7 @@ const state = {
   step: "day", // time between chart points: day | week | month (statistics always use every day)
   keyLength: 4, // 4 = returns by year, 7 = by month
   heat: 0, // which line the monthly heatmap shows
+  spreadLine: 0, // which line the spread of monthly returns shows
   crisis: null, // a past crash from CRISES while its button is on; any other period change turns it off
   rollYears: 1, // years in each stretch of the rolling returns chart
   windows: [],
@@ -102,7 +106,8 @@ const escapeHtml = (text) => text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0
 
 // Statistics table rows, in labelled groups: [label, key, format, better, why it can be missing].
 // better: 1 when higher is better, -1 when lower is (volatility), 0 when neither is (beta).
-const GROUPS = [
+// benchWhy: why the benchmark rows are blank, when they are (the benchmark has no prices for the whole period).
+const statGroups = (name, benchWhy) => [
   ["Growth", [
     ["Total return", "totalReturn", pct, 1],
     ["Annualised return", "cagr", pct, 1, "Needs at least one year"],
@@ -113,13 +118,19 @@ const GROUPS = [
     ["Maximum drawdown", "maxDrawdown", pct, 1],
     ["Best year", "bestYear", pct, 1, "Needs at least one full calendar year"],
     ["Worst year", "worstYear", pct, 1, "Needs at least one full calendar year"],
+    ["Monthly value at risk (95%)", "valueAtRisk", pct, 1, "Needs at least 24 full calendar months"],
+    ["Expected shortfall (95%)", "expectedShortfall", pct, 1, "Needs at least 24 full calendar months"],
   ]],
   ["Reward for the risk", [
     ["Sharpe ratio", "sharpe", num, 1],
     ["Sortino ratio", "sortino", num, 1],
   ]],
-  ["Compared with the market", [
-    [`Beta vs ${BENCHMARK}`, "beta", num, 0],
+  ["Compared with the benchmark", [
+    [`Beta vs ${name}`, "beta", num, 0, benchWhy],
+    [`Alpha vs ${name}`, "alpha", pct, 1, benchWhy],
+    [`R-squared vs ${name}`, "rSquared", pct, 0, benchWhy],
+    [`Tracking error vs ${name}`, "trackingError", pct, 0, benchWhy],
+    [`Information ratio vs ${name}`, "informationRatio", num, 1, benchWhy],
   ]],
 ];
 
@@ -151,6 +162,8 @@ function applyPreset(months) {
 // Loading
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
+  const keep = keepPeriod; // only the benchmark changed (benchChanged)
+  keepPeriod = false;
   // Saved portfolios are typed by name (names may hold spaces), so lift those out; what's left is tickers.
   let text = [...chips, input.value].filter((t) => t.trim()).join(", ");
   const picked = [];
@@ -164,6 +177,17 @@ form.addEventListener("submit", async (event) => {
     say("Tickers can only contain letters, digits, dots and dashes.", true);
     return;
   }
+  // The benchmark: a saved portfolio by name, else a ticker. An empty box means the default.
+  const benchText = benchInput.value.trim() || DEFAULT_BENCHMARK;
+  const benchPortfolio = loadPortfolios().find((p) => p.name.toUpperCase() === benchText.toUpperCase());
+  const bench = benchPortfolio
+    ? { label: benchPortfolio.name, tickers: benchPortfolio.holdings.map((h) => h.ticker), portfolio: benchPortfolio }
+    : { label: benchText.toUpperCase(), tickers: [benchText.toUpperCase()] };
+  if (!benchPortfolio && !/^[A-Z0-9.-]{1,12}$/.test(bench.label)) {
+    say("The benchmark must be a ticker (letters, digits, dots and dashes) or the name of a saved portfolio.", true);
+    return;
+  }
+  benchInput.value = benchAsked = bench.label;
   // Portfolios first, then tickers. A line's colour comes from its position in this list.
   const lines = [
     ...picked.map((p) => ({ label: p.name, tickers: p.holdings.map((h) => h.ticker), portfolio: p })),
@@ -181,7 +205,7 @@ form.addEventListener("submit", async (event) => {
   button.disabled = true;
   $("bt-skeleton").hidden = !$("results").hidden;
   say(`Loading ${lines.map((l) => l.label).join(", ")}…`);
-  const wanted = [...new Set([...lines.flatMap((l) => l.tickers), BENCHMARK])];
+  const wanted = [...new Set([...lines.flatMap((l) => l.tickers), ...bench.tickers])];
   const loaded = await Promise.allSettled(wanted.map(fetchPrices));
   button.disabled = false;
   $("bt-skeleton").hidden = true;
@@ -201,7 +225,13 @@ form.addEventListener("submit", async (event) => {
     if (points.length < 3) return problems.push(`${l.label} can't be measured: its holdings have no dates in common.`);
     state.series.push({ label: l.label, color: COLORS[i], points });
   });
-  state.benchmark = prices[BENCHMARK] ?? [];
+  state.benchName = bench.label;
+  state.benchmark = [];
+  const benchMissing = bench.tickers.find((t) => !prices[t]);
+  const benchPoints = benchMissing ? [] : bench.portfolio ? portfolioSeries(bench.portfolio, prices).points : prices[bench.label];
+  if (benchMissing) problems.push(`The benchmark, ${bench.label}, didn't load: ${errors[benchMissing]}. Figures compared with it are left blank.`);
+  else if (benchPoints.length < 3) problems.push(`The benchmark, ${bench.label}, can't be used: its holdings have no dates in common.`);
+  else state.benchmark = benchPoints;
 
   if (!state.series.length) {
     $("results").hidden = true;
@@ -218,7 +248,8 @@ form.addEventListener("submit", async (event) => {
     say("These assets have no dates in common, so they can't be compared.", true);
     return;
   }
-  applyPreset("12"); // 1 year is the default period
+  // 1 year is the default period; a new benchmark keeps the period on show when it still fits.
+  if (!(keep && state.start >= state.min && state.end <= state.max)) applyPreset("12");
   drawDataNotes(lines, latestStarter);
   drawHolding();
 
@@ -257,11 +288,35 @@ $("log-scale").addEventListener("change", (event) => {
   draw();
 });
 
+// A new benchmark loads straight away when results are showing (otherwise with the next Compare).
+const benchInput = $("benchmark");
+let benchAsked = DEFAULT_BENCHMARK; // the benchmark the last Compare asked for, so a pick and the box's change event load it once
+let keepPeriod = false;
+function benchChanged() {
+  const text = benchInput.value.trim() || DEFAULT_BENCHMARK;
+  if (text.toUpperCase() === benchAsked.toUpperCase() || $("results").hidden) return;
+  keepPeriod = true;
+  form.requestSubmit();
+}
+attachTickerSearch(benchInput, { extra: () => loadPortfolios().map((p) => [p.name, "Saved portfolio"]), onPick: (text) => { benchInput.value = text; benchChanged(); } });
+benchInput.addEventListener("change", benchChanged);
+$("show-bench").addEventListener("change", (event) => {
+  state.showBench = event.target.checked;
+  if (!$("results").hidden) draw();
+});
+
 $("heat-pick").addEventListener("click", (event) => {
   const index = event.target.dataset.index;
   if (index === undefined) return;
   state.heat = Number(index);
   drawHeatmap(state.windows);
+});
+
+$("spread-pick").addEventListener("click", (event) => {
+  const index = event.target.dataset.index;
+  if (index === undefined) return;
+  state.spreadLine = Number(index);
+  if (charts) drawSpread(state.windows);
 });
 
 $("step").addEventListener("click", (event) => {
@@ -297,7 +352,7 @@ for (const id of ["growth-chart", "drawdown-chart"]) {
     if (zoomTipShown || event.pointerType !== "mouse" || !chart()) return;
     zoomTipShown = true;
     const tip = Object.assign(element("span", "Scroll to zoom"), { className: "zoom-tip" });
-    tip.setAttribute("aria-hidden", "true"); // the hint above the chart says the same in words
+    tip.setAttribute("aria-hidden", "true"); // the "How to zoom" word above the chart says the same in words
     box.append(tip);
     setTimeout(() => tip.remove(), 4000);
   });
@@ -381,9 +436,23 @@ function draw() {
     Object.assign($(id), { min: state.start < state.min ? state.start : state.min, max: state.max, value }); // a crash can start before the common dates
   }
 
+  // The period in words, from the same From and To as the boxes; trading days are the days with a price move.
+  const days = Math.max(...windows.map((w) => w.points.length)) - 1;
+  $("period-caption").textContent = `${longDate(state.start)} to ${longDate(state.end)} · ${duration(state.start, state.end)} · ${days.toLocaleString()} trading days`;
+
+  // The benchmark counts only when it has prices for the whole period: never a shorter stretch, quietly.
+  const bw = windowOf(state.benchmark, state.start, state.end);
+  state.bench = bw.points.length > 2 && covers(bw.points, state.start, state.end) ? { label: state.benchName, color: MUTED, ...bw } : null;
+  const compared = windows.some((w) => w.label === state.benchName);
+  const drawn = state.showBench && state.bench && !compared ? state.bench : null; // the dashed line, when one is wanted
+  const gap = state.benchmark.length ? benchGap() : ""; // one that didn't load is explained in the status line
+  $("bench-note").textContent = gap ? `The benchmark, ${state.benchName}, has ${gap}, so the figures compared with it are left blank${state.showBench ? " and it isn't drawn" : ""}.`
+    : drawn ? `The grey dashed line is the benchmark, ${benchTitle()}.`
+    : state.showBench && compared ? `The benchmark, ${state.benchName}, is already one of the lines, so it isn't drawn twice.` : "";
+
   state.windows = windows;
   renderChips(windows);
-  const stats = windows.map((w) => summarize(w.points, state.benchmark, w.nextDate, START_VALUE));
+  const stats = windows.map((w) => summarize(w.points, state.bench ? state.benchmark : [], w.nextDate, START_VALUE));
   drawTable(windows, stats);
   drawSummary(windows, stats);
   drawGapNote(windows);
@@ -396,18 +465,27 @@ function draw() {
     return;
   }
   if (!charts) {
-    charts = Object.fromEntries(["growth", "returns", "rolling", "drawdown", "scatter"].map((n) => [n, echarts.init($(`${n}-chart`))]));
+    charts = Object.fromEntries(["growth", "returns", "rolling", "drawdown", "spread", "scatter"].map((n) => [n, echarts.init($(`${n}-chart`))]));
     echarts.connect([charts.growth, charts.drawdown]); // hovering one moves the crosshair on the other
     const resize = () => Object.values(charts).forEach((c) => c.resize());
     addEventListener("resize", resize);
     addEventListener("hashchange", resize); // the tab may have been hidden while the window changed size
   }
-  const grid = timeGrid(windows);
-  drawGrowth(windows, grid);
+  const grid = timeGrid(drawn ? [...windows, drawn] : windows);
+  drawGrowth(windows, grid, drawn);
   drawReturns(windows);
   drawRolling(windows);
-  drawDrawdowns(windows, grid);
+  drawDrawdowns(windows, grid, drawn);
+  drawSpread(windows);
   drawScatter(windows, stats);
+}
+
+// "the S&P 500 (SPY)" for the default benchmark, else its ticker or portfolio name.
+const benchTitle = (start = false) => (state.benchName === DEFAULT_BENCHMARK ? `${start ? "The" : "the"} S&P 500 (SPY)` : state.benchName);
+// Why the benchmark can't be used for the period on show ("no prices before 29 Jan 1993"), or "" when it can.
+function benchGap() {
+  if (state.bench || !state.benchmark.length) return "";
+  return state.benchmark[0].date > state.start ? `no prices before ${longDate(state.benchmark[0].date)}` : `no prices after ${longDate(state.benchmark.at(-1).date)}`;
 }
 
 function swatch(color) {
@@ -440,7 +518,8 @@ function drawTable(windows, stats) {
   const columnHeads = windows.map((w) => Object.assign(element("th", swatch(w.color), w.label), { scope: "col" }));
   if (pair) columnHeads.push(Object.assign(element("th", "Gap"), { scope: "col", title: "How far ahead the better of the two is. The colour shows which one." }));
 
-  const groups = GROUPS.map(([name, metrics]) => element(
+  const why = state.bench ? undefined : state.benchmark.length ? `${state.benchName} has ${benchGap()}` : `${state.benchName} didn't load`;
+  const groups = statGroups(state.benchName, why).map(([name, metrics]) => element(
     "tbody",
     Object.assign(element("tr", Object.assign(element("th", name), { scope: "rowgroup" }), Object.assign(element("td"), { colSpan: columns })), { className: "group" }),
     ...metrics.map(([label, key, format, better, why]) => {
@@ -568,6 +647,9 @@ export function frame(formatHeader, format, pointer = "line") {
   };
 }
 
+// The benchmark: a thin grey dashed line, so it never takes one of the ten series colours.
+const benchLine = (w, data, extra = {}) => line(w, data, { name: `${w.label} (benchmark)`, z: 1, lineStyle: { width: 1.5, color: MUTED, type: "dashed" }, ...extra });
+
 const line = (w, data, extra = {}) => ({
   name: w.label,
   type: "line",
@@ -670,15 +752,17 @@ function growthLead(windows) {
   return `${at(top)} ended highest, at ${fit(top)}, and ${at(bottom)} lowest, at ${fit(bottom)}.`;
 }
 
-function drawGrowth(windows, grid) {
+function drawGrowth(windows, grid, bench) {
   $("growth-lead").textContent = growthLead(windows);
   const base = frame(longDate, money);
-  const data = windows.map((w) => resample(w.points.map((p) => [p.date, (START_VALUE * p.adjClose) / w.points[0].adjClose])));
+  const growth = (w) => resample(w.points.map((p) => [p.date, (START_VALUE * p.adjClose) / w.points[0].adjClose]));
+  const data = windows.map(growth);
+  const benchData = bench && growth(bench);
   const axisLabel = { ...base.yAxis.axisLabel, formatter: (v) => moneyCompact.format(v) };
   // $10,000 always stays on the axis (a weekly or monthly step can skip the first day), so the start line shows.
   let yAxis = { ...base.yAxis, type: "value", scale: true, axisLabel, min: (v) => (v.min > START_VALUE ? START_VALUE : null), max: (v) => (v.max < START_VALUE ? START_VALUE : null) };
   if (state.log) {
-    const values = data.flat().map(([, v]) => v);
+    const values = [...data, ...(bench ? [benchData] : [])].flat().map(([, v]) => v);
     const min = values.reduce((a, b) => Math.min(a, b), START_VALUE);
     const max = values.reduce((a, b) => Math.max(a, b), START_VALUE);
     const customValues = logTicks(min, max);
@@ -697,22 +781,33 @@ function drawGrowth(windows, grid) {
       grid,
       xAxis: { ...base.xAxis, type: "time" },
       yAxis,
-      series: windows.map((w, i) => line(w, data[i], {
+      series: [...windows.map((w, i) => line(w, data[i], {
         // Name and final value at the line's end, in ink with a dot of the line's colour; close ones are nudged apart.
         endLabel: { show: true, formatter: `{dot|} ${endText(w)}`, color: INK, fontSize: 12, fontWeight: 600, rich: { dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: w.color } } },
         labelLayout: { moveOverlap: "shiftY" },
         ...(i === 0 && { markLine: startLine, markArea: crisisBands(charts.growth, grid, data) }),
       })),
+      ...(bench ? [benchLine(bench, benchData, { endLabel: { show: true, formatter: endText(bench), color: MUTED, fontSize: 12 }, labelLayout: { moveOverlap: "shiftY" } })] : []),
+      ],
     },
     true,
   );
 }
 
-function drawDrawdowns(windows, grid) {
+function drawDrawdowns(windows, grid, bench) {
   const base = frame(longDate, pct);
   const dds = windows.map((w) => drawdowns(w.points));
   const data = dds.map((dd) => resample(dd.map((d) => [d.date, d.value])));
   const deepest = dds.map((dd) => dd.reduce((a, b) => (b.value < a.value ? b : a)));
+  const benchDd = bench && drawdowns(bench.points);
+  const floor = Math.min(...deepest.map((d) => d.value), ...(bench ? [benchDd.reduce((a, b) => Math.min(a, b.value), 0)] : []));
+  // The market's yardsticks, each drawn only when the chart goes that deep, named in words (glossary terms) under the chart.
+  const guides = [[-0.1, "Correction"], [-0.2, "Bear market"]].filter(([y]) => floor <= y);
+  const lineWord = (n) => (n > 1 ? "lines mark" : "line marks");
+  const words = [];
+  if (guides.length) words.push(`The faint dashed ${lineWord(guides.length)} `, term("a correction", "correction"), " (10% below a previous high)");
+  if (guides.length > 1) words.push(" and ", term("a bear market", "bear market"), " (20% below)");
+  $("dd-guides").replaceChildren(...words, ...(words.length ? ["."] : []));
   const worst = deepest.reduce((a, d, i) => (d.value < deepest[a].value ? i : a), 0);
   const { date: worstDate, value: worstValue } = deepest[worst];
   const when = `${pctShort.format(worstValue)}, in ${monthLabel(worstDate.slice(0, 7))}`;
@@ -732,6 +827,14 @@ function drawDrawdowns(windows, grid) {
     symbolSize: 9,
     label: { show: true, position: "bottom", color: INK, fontSize: 11, fontWeight: 600 },
     labelLayout: { moveOverlap: "shiftY" },
+    // On this top series so the lines never cover the guides' labels, which sit on a paper patch.
+    markLine: {
+      silent: true,
+      symbol: "none",
+      lineStyle: { color: MUTED, type: "dashed", width: 1, opacity: 0.5 },
+      label: { position: "insideEndTop", color: MUTED, fontSize: 11, backgroundColor: "rgba(250, 250, 248, 0.85)", padding: [1, 4], borderRadius: 3 },
+      data: guides.map(([y, name]) => ({ yAxis: y, label: { formatter: `${name} ${pctAxis.format(y)}` } })),
+    },
     data: windows.flatMap((w, i) => {
       const { date, value } = deepest[i];
       if (value >= 0) return [];
@@ -750,7 +853,7 @@ function drawDrawdowns(windows, grid) {
       // Dates along the bottom, as on the growth chart (left on zero, they would sit at the top).
       xAxis: { ...base.xAxis, type: "time", axisLine: { ...base.xAxis.axisLine, onZero: false } },
       // Some room under the deepest pin for its label.
-      yAxis: percentAxis(base.yAxis, Math.min(-0.01, ...deepest.map((d) => d.value * 1.15)), 0),
+      yAxis: percentAxis(base.yAxis, Math.min(-0.01, floor * 1.15), 0),
       series: [
         ...windows.map((w, i) => line(w, data[i], {
           lineStyle: { width: 1.5, color: w.color },
@@ -758,6 +861,7 @@ function drawDrawdowns(windows, grid) {
           areaStyle: { color: { type: "linear", x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: `${w.color}0d` }, { offset: 1, color: `${w.color}66` }] } },
           ...(i === 0 && { markArea: crisisBands(charts.drawdown, grid, data) }),
         })),
+        ...(bench ? [benchLine(bench, resample(benchDd.map((d) => [d.date, d.value])), { lineStyle: { width: 1, color: MUTED, type: "dashed" } })] : []),
         pins,
       ],
     },
@@ -1005,6 +1109,61 @@ function drawHeatmap(windows) {
   $("heatmap").setAttribute("aria-label", `Monthly returns of ${w.label}`);
 }
 
+// How the chosen line's full calendar months spread out: a 1-point histogram with a bell curve of the same average
+// and volatility over it (the expected count in each bucket), then the shape in figures (moments in stats.js).
+const MIN_MONTHS = 24; // fewer months say little about the shape of their spread
+function drawSpread(windows) {
+  state.spreadLine = Math.min(state.spreadLine, windows.length - 1);
+  $("spread-pick").replaceChildren(...windows.map((w, i) => {
+    const b = Object.assign(element("button", w.label), { type: "button" });
+    b.dataset.index = i;
+    b.setAttribute("aria-pressed", i === state.spreadLine);
+    return b;
+  }));
+  $("spread-pick").hidden = windows.length < 2;
+  const w = windows[state.spreadLine];
+  const values = periodReturns(w.points, 7, w.nextDate).filter((p) => !p.partial).map((p) => p.value);
+  const enough = values.length >= MIN_MONTHS;
+  $("spread-chart").hidden = $("spread-facts").hidden = !enough;
+  if (!enough) {
+    $("spread-lead").textContent = `This period holds ${values.length === 1 ? "1 full calendar month" : `${values.length} full calendar months`} of ${w.label}. The spread needs at least ${MIN_MONTHS} to mean much, so pick a longer period, such as 3Y.`;
+    return;
+  }
+  const m = moments(values);
+  const width = 0.01;
+  const buckets = histogram(values, width);
+  const curve = m.sd > 0 ? buckets.map((b) => values.length * (normalCdf((b.from + width - m.mean) / m.sd) - normalCdf((b.from - m.mean) / m.sd))) : null; // a flat line (cash) has no bell curve
+  const gained = values.filter((v) => v > 0).length / values.length;
+  const tails = m.excessKurtosis > 0.5 ? "more very good and very bad months than a bell curve predicts: fat tails"
+    : m.excessKurtosis < -0.5 ? "fewer very good and very bad months than a bell curve predicts" : "about as many very good and very bad months as a bell curve predicts";
+  $("spread-lead").textContent = `${w.label} gained in ${shareOf(gained)} of ${values.length} full months${Number.isFinite(m.excessKurtosis) ? `, and had ${tails}` : ""}.`;
+  $("spread-facts").replaceChildren(...[
+    ["Months that gained", shareOf(gained)],
+    ["Best month", pctShort.format(Math.max(...values))],
+    ["Worst month", pctShort.format(Math.min(...values))],
+    [term("Skewness"), show(m.skewness, num)],
+    [term("Excess kurtosis"), show(m.excessKurtosis, num)],
+  ].map(([label, value]) => element("div", element("dt", label), element("dd", value))));
+
+  const months = { format: (v) => `${oneDecimal.format(v)} ${v === 1 ? "month" : "months"}` };
+  const bucketName = (from) => `${pctAxis.format(+from)} to ${pctAxis.format(+from + width)}`;
+  const base = frame(bucketName, months, "shadow");
+  charts.spread.resize(); // it may have been hidden since the last draw
+  charts.spread.setOption(
+    {
+      ...base,
+      grid: { left: 40, right: 16, top: 12, bottom: 28 },
+      xAxis: { ...base.xAxis, type: "category", data: buckets.map((b) => String(b.from)), axisLabel: { ...base.xAxis.axisLabel, formatter: (v) => pctAxis.format(+v) } },
+      yAxis: { ...base.yAxis, type: "value", minInterval: 1 },
+      series: [
+        { name: w.label, type: "bar", barCategoryGap: "8%", itemStyle: { color: w.color, borderRadius: [3, 3, 0, 0] }, emphasis: { disabled: true }, data: buckets.map((b) => b.count) },
+        ...(curve ? [{ name: "Bell curve", type: "line", smooth: true, showSymbol: false, lineStyle: { color: INK, width: 1.5 }, itemStyle: { color: INK }, data: curve }] : []),
+      ],
+    },
+    true,
+  );
+}
+
 // How the lines move together: the correlation of daily returns for each pair over the period, the lower half of the
 // grid only, coloured like the Creator's (blue for together, orange for apart, stronger for bigger numbers).
 function drawCorrelation(windows) {
@@ -1030,7 +1189,7 @@ function drawCorrelation(windows) {
   $("bt-correlation").replaceChildren(element("thead", head), element("tbody", ...rows));
 }
 
-// The sentence over the scatter: which swung more and which returned more, against the other line or SPY.
+// The sentence over the scatter: which swung more and which returned more, against the other line or the benchmark.
 // Figures that print the same count as level.
 function scatterLead(windows, stats, spy, annual) {
   const ret = (s) => (annual ? s.cagr : s.totalReturn);
@@ -1039,7 +1198,7 @@ function scatterLead(windows, stats, spy, annual) {
     `${name} swung ${compare(s.volatility, other.volatility, "more than", "less than", "as much as")} ${otherName} and returned ${compare(ret(s), ret(other), "more", "less", "the same")}.`;
   if (windows.length === 1) {
     return spy
-      ? versus(windows[0].label, stats[0], "the S&P 500 (SPY)", spy)
+      ? versus(windows[0].label, stats[0], benchTitle(), spy)
       : `${windows[0].label}'s volatility was ${pct.format(stats[0].volatility)}, and it returned ${pct.format(ret(stats[0]))}${annual ? " a year" : ""}.`;
   }
   if (windows.length === 2) {
@@ -1053,18 +1212,17 @@ function scatterLead(windows, stats, spy, annual) {
     : `${windows[most].label} returned most, and ${windows[calmest].label} swung least.`;
 }
 
-// Volatility across, return up: one dot per line, coloured like its line. The S&P 500 (SPY) is a hollow
-// ring whose dashed cross splits the chart into four corners, so every dot reads against the market.
+// Volatility across, return up: one dot per line, coloured like its line. The benchmark (the S&P 500 unless another
+// is picked) is a hollow ring whose dashed cross splits the chart into four corners, so every dot reads against it.
 function drawScatter(windows, stats) {
-  const spyWindow = windowOf(state.benchmark, state.start, state.end);
-  // SPY only when it covers the whole period (a few days' slack for holidays), never a shorter stretch.
-  const spyCovers = spyWindow.points.length > 2 && covers(spyWindow.points, state.start, state.end);
-  const compared = windows.some((w) => w.label === BENCHMARK);
-  const spy = spyCovers && !compared ? summarize(spyWindow.points, state.benchmark, spyWindow.nextDate) : null;
+  // Only when it covers the whole period (state.bench), never a shorter stretch.
+  const b = state.bench;
+  const compared = windows.some((w) => w.label === state.benchName);
+  const spy = b && !compared ? summarize(b.points, state.benchmark, b.nextDate) : null;
   const annual = (spy ? [...stats, spy] : stats).every((s) => s.cagr !== null);
   const yName = annual ? "Annualised return" : "Total return";
-  const missing = compared ? "" : !state.benchmark.length ? " The S&P 500 (SPY) didn't load, so it isn't shown." : !spy ? " The S&P 500 (SPY) has no prices for part of this period, so it isn't shown." : "";
-  $("scatter-note").textContent = `Each dot is one compared asset: further right swings more, higher ${annual ? "grew faster per year" : "gained more over the period (it is under a year, so returns are not annualised)"}.${spy ? " The ring is the S&P 500 (SPY) over the same dates. Its dashed lines split the chart into four corners that say how each dot did against it." : missing}`;
+  const missing = compared ? "" : !state.benchmark.length ? ` ${benchTitle(true)} didn't load, so it isn't shown.` : !spy ? ` ${benchTitle(true)} has no prices for part of this period, so it isn't shown.` : "";
+  $("scatter-note").textContent = `Each dot is one compared asset: further right swings more, higher ${annual ? "grew faster per year" : "gained more over the period (it is under a year, so returns are not annualised)"}.${spy ? ` The ring is the benchmark, ${benchTitle()}, over the same dates. Its dashed lines split the chart into four corners that say how each dot did against it.` : missing}`;
 
   $("scatter-lead").textContent = scatterLead(windows, stats, spy, annual);
 
@@ -1096,7 +1254,7 @@ function drawScatter(windows, stats) {
 
   const corner = (x0, x1, y0, y1, text, position) => [{ name: text, xAxis: x0, yAxis: y0, label: { position } }, { xAxis: x1, yAxis: y1 }];
   const reference = ref && {
-    name: "S&P 500 (SPY)",
+    name: state.benchName === DEFAULT_BENCHMARK ? "S&P 500 (SPY)" : state.benchName,
     type: "scatter",
     symbolSize: 16, // drawn first and a little bigger, so a dot on the same spot (VOO) sits inside the ring
     itemStyle: { color: "#fff", borderColor: INK, borderWidth: 2 },

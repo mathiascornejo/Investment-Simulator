@@ -1,5 +1,7 @@
 // Monte Carlo simulation and historical crisis tests. Pure maths: no DOM, no network.
-import { windowOf, periodReturns } from "./stats.js";
+import { windowOf, periodReturns, percentile } from "./stats.js";
+
+export { percentile }; // lives in stats.js, which the Backtester also uses for value at risk
 
 // Peak-to-trough dates of the S&P 500 (by closing price) in each crisis, oldest first (the Backtester's bands rely on the order).
 // Each name starts with a word that can stand alone ("1987", "Dot-com") for when a band is too narrow for the whole name.
@@ -102,13 +104,6 @@ export function shareAtOrBelow(sorted, x) {
     else hi = mid;
   }
   return lo / sorted.length;
-}
-
-// Value below which the fraction p of a sorted list falls (linear interpolation).
-export function percentile(sorted, p) {
-  const at = (sorted.length - 1) * p;
-  const lo = Math.floor(at);
-  return sorted[lo] + (sorted[Math.ceil(at)] - sorted[lo]) * (at - lo);
 }
 
 // A small repeatable random number generator (mulberry32): the same seed always gives the same numbers,

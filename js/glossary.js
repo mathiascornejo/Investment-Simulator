@@ -1,6 +1,7 @@
 // Plain-English definitions. term("Sharpe ratio") returns the label with a dotted underline;
 // hovering, focusing or tapping it shows the definition in one shared popover that sits in the top layer,
 // so scrolling tables and chart panels never clip it. The same definitions fill the Glossary page.
+// {b} in a definition is the benchmark: the name after " vs " in the word's label ("Beta vs QQQ"), else "the benchmark".
 import { element } from "./format.js";
 
 const DEFINITIONS = {
@@ -12,7 +13,19 @@ const DEFINITIONS = {
   "worst year": ["The return in the worst full calendar year inside the period.", null],
   "sharpe ratio": ["Return earned per unit of volatility. Higher means more reward for the ups and downs. Here the risk-free rate is taken as 0%.", "annualised mean return ÷ volatility"],
   "sortino ratio": ["Like the Sharpe ratio, but only the downward swings count as risk.", "annualised mean return ÷ downside deviation"],
-  beta: ["How much it tends to move when SPY moves 1%. 1 means in step, 0.5 half as much, above 1 more.", "covariance with SPY ÷ variance of SPY"],
+  benchmark: ["What the lines are measured against. Beta, alpha, R-squared, tracking error and the information ratio all compare with it. It is SPY (the S&P 500) unless you pick another ticker or saved portfolio in the Backtester.", null],
+  beta: ["How much it tends to move when {b} moves 1%. 1 means in step, 0.5 half as much, above 1 more.", "covariance with {b} ÷ variance of {b}"],
+  alpha: ["The yearly return left over after allowing for how much it moves with {b} (its beta). Above 0 means it did better than its beta alone would predict. The risk-free rate is taken as 0%.", "(mean daily return − beta × mean daily return of {b}) × 252"],
+  "r-squared": ["How much of its daily ups and downs {b} explains, from 0% to 100%. Near 100% means it moves almost entirely with {b}, so beta and alpha describe it well. Low means they say little.", "correlation with {b}, squared"],
+  "tracking error": ["How far its daily returns stray from {b}'s, scaled to a year. 0% means it tracks {b} exactly. An index fund aims for a figure near 0%.", "st. dev. of (daily return − daily return of {b}) × √252"],
+  "information ratio": ["How steadily it got ahead of {b}: the yearly return above {b}, per unit of tracking error. Higher is steadier. Below 0 means it fell behind.", "mean daily (return − return of {b}) × 252 ÷ tracking error"],
+  "monthly value at risk": ["A bad-month yardstick: in 1 month out of 20, it lost at least this much. It is the 5th percentile of the period's full calendar-month returns, so it describes the past, not a promise about the future.", "5th percentile of monthly returns"],
+  "expected shortfall": ["How bad the worst months were on average: the average of the months at or below the value at risk, the worst 1 in 20.", "average of the monthly returns ≤ value at risk"],
+  skewness: ["Which way the big surprises went. Below 0 means the largest moves were more often falls than gains; 0 means both sides were alike, as in a bell curve.", "n ÷ ((n − 1)(n − 2)) × Σ ((x − mean) ÷ st. dev.)³"],
+  "excess kurtosis": ["How fat the tails are: how often extreme months came, compared with a bell curve. 0 is a bell curve. Above 0 means more extreme months than a bell curve predicts, which a volatility figure alone hides.", "sample-adjusted, as a spreadsheet's KURT gives it"],
+  correction: ["A fall of at least 10% from a previous high. It is a common yardstick for a sizeable drop, not an official rule.", null],
+  "bear market": ["A fall of at least 20% from a previous high. Like a correction, it is a common yardstick, not an official rule.", null],
+  "how to zoom": ["Over the growth or drawdown chart: scroll to zoom in or out, drag to move along the dates, drag the dates strip at the bottom to stretch them, and double-click to go back to 1 year.", null],
   drawdown: ["How far the value sits below its previous high on each day. 0% means it is at a new high.", null],
   correlation: ["How closely two holdings' daily returns move together: 1 is in step, 0 unrelated, −1 opposite. Lower numbers mean more diversification.", null],
   "share of risk": ["How much of the portfolio's ups and downs come from this holding, at its target weight. The shares add up to 100%. A holding that tends to move further than the portfolio as a whole causes more than its share of the money.", "weight × covariance with the portfolio ÷ portfolio variance"],
@@ -32,11 +45,15 @@ const DEFINITIONS = {
   "sequence-of-returns risk": ["The risk that bad years come early while money is being taken out. Selling after a fall locks in the loss, so the same returns in a different order can last or run out. The Monte Carlo crises table and its every-start-date chart show it.", null],
 };
 
+const fill = (text, benchmark = "the benchmark") => text?.replaceAll("{b}", benchmark);
+
 export function term(label, key = label) {
   const found = DEFINITIONS[key.toLowerCase().replace(/ \(.*\)$/, "").replace(/ vs .*$/, "")];
   if (!found) return document.createTextNode(label);
   const button = Object.assign(element("button", label), { type: "button", className: "term" });
   button.dataset.term = key.toLowerCase().replace(/ \(.*\)$/, "").replace(/ vs .*$/, "");
+  const vs = label.match(/ vs (.+)$/);
+  if (vs) button.dataset.vs = vs[1];
   button.setAttribute("aria-describedby", "glossary-pop");
   return button;
 }
@@ -48,7 +65,7 @@ document.body.append(pop);
 
 // Above the word, or under it when there is no room. below: under it first, because a finger would hide it above.
 function open(button, below = false) {
-  const [text, formula] = DEFINITIONS[button.dataset.term];
+  const [text, formula] = DEFINITIONS[button.dataset.term].map((t) => fill(t, button.dataset.vs));
   pop.replaceChildren(element("strong", button.textContent), element("p", text), ...(formula ? [element("code", formula)] : []));
   pop.showPopover();
   const at = button.getBoundingClientRect();
@@ -99,7 +116,7 @@ if (list) {
   const count = document.getElementById("glossary-count");
   const slug = (key) => key.replace(/[^a-z0-9]+/g, "-");
   const entries = Object.keys(DEFINITIONS).sort().map((key) => {
-    const [text, formula] = DEFINITIONS[key];
+    const [text, formula] = DEFINITIONS[key].map((t) => fill(t));
     const link = Object.assign(element("a", key[0].toUpperCase() + key.slice(1)), { href: `#glossary/${slug(key)}` });
     const entry = element("div", element("dt", link), element("dd", text), ...(formula ? [element("dd", element("code", formula))] : []));
     entry.id = `term-${slug(key)}`;

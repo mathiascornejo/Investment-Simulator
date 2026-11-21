@@ -170,3 +170,62 @@ test("holding periods: month-end to month-end, share lost, worst / median / best
   // 100 to 121 over two years is 10% a year.
   close(s.holdingPeriods(series([["2020-01-31", 100], ["2022-01-31", 121]]), 2).median, 0.1);
 });
+
+// A price series from a start date and daily returns, one trading day apart (weekends included: dates only need to match).
+const fromReturns = (returns) => {
+  let v = 100;
+  return series([["2020-01-01", 100], ...returns.map((r, i) => [`2020-01-${String(i + 2).padStart(2, "0")}`, (v *= 1 + r)])]);
+};
+
+test("relative figures against a benchmark, checked by hand", () => {
+  // Benchmark returns 1%, -1%, 2%, 0%; the line 2%, -1%, 3%, 1%. By hand: means 0.5% and 1.25%; sums of
+  // cross-products 0.00065, of the benchmark's squares 0.0005, of the line's 0.000875. Daily differences
+  // 1%, 0, 1%, 1%: mean 0.75%, sample st. dev. 0.5%.
+  const bench = fromReturns([0.01, -0.01, 0.02, 0]);
+  const line = fromReturns([0.02, -0.01, 0.03, 0.01]);
+  const r = s.relative(line, bench);
+  close(r.beta, 1.3); // 0.00065 / 0.0005
+  close(r.alpha, (0.0125 - 1.3 * 0.005) * 252); // 1.512
+  close(r.rSquared, 0.00065 ** 2 / (0.000875 * 0.0005)); // 0.9657
+  close(r.trackingError, 0.005 * Math.sqrt(252));
+  close(r.informationRatio, (0.0075 * 252) / (0.005 * Math.sqrt(252)));
+  // Against itself: beta 1, nothing left over, nothing to track, so no information ratio.
+  const self = s.relative(bench, bench);
+  close(self.beta, 1);
+  close(self.alpha, 0);
+  close(self.rSquared, 1);
+  close(self.trackingError, 0);
+  assert.ok(Number.isNaN(self.informationRatio));
+  assert.ok(Number.isNaN(s.relative(line, []).alpha)); // no benchmark prices: nothing to measure
+});
+
+test("value at risk and expected shortfall from full calendar months", () => {
+  // 24 full months: -10%, -6%, -2% and 21 of +1%. The 5th percentile sits 1.15 places up the sorted list:
+  // -6% + 0.15 x 4 points = -5.4%. The months at or below it are -10% and -6%, averaging -8%.
+  const months = [-0.1, -0.06, -0.02, ...Array(21).fill(0.01)].map((value, i) => ({ period: String(i), value, partial: false }));
+  const t = s.tailRisk([...months, { period: "x", value: -0.5, partial: true }]); // a part-month is left out
+  close(t.valueAtRisk, -0.054);
+  close(t.expectedShortfall, -0.08);
+  assert.equal(s.tailRisk(months.slice(1)), null); // 23 months is too few
+});
+
+test("skewness and excess kurtosis match a spreadsheet's SKEW and KURT", () => {
+  // 1, 2, 3, 4, 10: mean 4, sample variance 12.5. Sums of cubed and fourth-power deviations: 180 and 1394.
+  const m = s.moments([1, 2, 3, 4, 10]);
+  close(m.mean, 4);
+  close(m.sd, Math.sqrt(12.5));
+  close(m.skewness, (5 / 12) * 180 / 12.5 ** 1.5); // 1.6971
+  close(m.excessKurtosis, 1.25 * (1394 / 156.25) - 8); // 3.152
+  close(s.moments([1, 2, 3, 4, 5]).skewness, 0); // symmetric
+});
+
+test("histogram buckets include empty ones and keep round numbers in the right bucket", () => {
+  const h = s.histogram([0.03, -0.005, 0.012, 0.019, -0.031], 0.01);
+  assert.deepEqual(h.map((b) => [b.from, b.count]), [[-0.04, 1], [-0.03, 0], [-0.02, 0], [-0.01, 1], [0, 0], [0.01, 2], [0.02, 0], [0.03, 1]]);
+});
+
+test("bell-curve share below z matches printed tables", () => {
+  close(s.normalCdf(0), 0.5, 1e-7);
+  close(s.normalCdf(1.96), 0.9750021, 1e-6);
+  close(s.normalCdf(-1), 0.1586553, 1e-6);
+});

@@ -122,7 +122,7 @@ function paired(points, other) {
   const meanA = mean(pairs.map(([a]) => a));
   const meanB = mean(pairs.map(([, b]) => b));
   const sum = (f) => pairs.reduce((total, pair) => total + f(...pair), 0);
-  return { cov: sum((a, b) => (a - meanA) * (b - meanB)), varA: sum((a) => (a - meanA) ** 2), varB: sum((_, b) => (b - meanB) ** 2) };
+  return { n: pairs.length, meanA, meanB, cov: sum((a, b) => (a - meanA) * (b - meanB)), varA: sum((a) => (a - meanA) ** 2), varB: sum((_, b) => (b - meanB) ** 2) };
 }
 
 // Sensitivity to the benchmark, from daily returns on the dates both series have.
@@ -135,6 +135,24 @@ export function beta(points, benchmark) {
 export function correlation(points, other) {
   const p = paired(points, other);
   return p ? p.cov / Math.sqrt(p.varA * p.varB) : NaN;
+}
+
+// Every figure measured against the benchmark, from daily returns on the dates both have (NaN when they share
+// under two). The risk-free rate is 0%, as in sharpe(). alpha: Jensen's, annualised. trackingError: st. dev. of the
+// daily differences x sqrt(252); their sum of squares is varA + varB - 2 cov. informationRatio: NaN when the
+// line is the benchmark itself (no difference to measure).
+export function relative(points, benchmark) {
+  const p = paired(points, benchmark);
+  if (!p) return { beta: NaN, alpha: NaN, rSquared: NaN, trackingError: NaN, informationRatio: NaN };
+  const b = p.cov / p.varB;
+  const trackingError = Math.sqrt((Math.max(0, p.varA + p.varB - 2 * p.cov) / (p.n - 1)) * TRADING_DAYS);
+  return {
+    beta: b,
+    alpha: (p.meanA - b * p.meanB) * TRADING_DAYS,
+    rSquared: p.cov ** 2 / (p.varA * p.varB),
+    trackingError,
+    informationRatio: trackingError > 1e-9 ? ((p.meanA - p.meanB) * TRADING_DAYS) / trackingError : NaN,
+  };
 }
 
 // Return for each calendar period in the window. keyLength 4 groups by year ("2020"), 7 by month
@@ -169,6 +187,53 @@ export function gapRange(monthsA, monthsB) {
   return { months: diffs.length, gap: 12 * m, low: 12 * (m - margin), high: 12 * (m + margin) };
 }
 
+// The value a share p of a sorted list sits at or below, interpolating between neighbours (p 0.5 is the median).
+export function percentile(sorted, p) {
+  const at = (sorted.length - 1) * p;
+  const lo = Math.floor(at);
+  return sorted[lo] + (sorted[Math.ceil(at)] - sorted[lo]) * (at - lo);
+}
+
+// Historical value at risk and expected shortfall at 95%, from full calendar months (periodReturns(points, 7)):
+// the 5th percentile of the monthly returns, and the average of the months at or below it. Null under 24 months.
+export function tailRisk(months) {
+  const sorted = months.filter((m) => !m.partial).map((m) => m.value).sort((a, b) => a - b);
+  if (sorted.length < 24) return null;
+  const valueAtRisk = percentile(sorted, 0.05);
+  return { valueAtRisk, expectedShortfall: mean(sorted.filter((v) => v <= valueAtRisk)) };
+}
+
+// Average, sample standard deviation, and the sample-adjusted skewness and excess kurtosis (as a spreadsheet's
+// SKEW and KURT give them) of a list of numbers. Needs at least 4.
+export function moments(values) {
+  const n = values.length;
+  const [m, sd] = [mean(values), stdev(values)];
+  const z = (power) => values.reduce((total, x) => total + ((x - m) / sd) ** power, 0);
+  return {
+    mean: m,
+    sd,
+    skewness: (n / ((n - 1) * (n - 2))) * z(3),
+    excessKurtosis: ((n * (n + 1)) / ((n - 1) * (n - 2) * (n - 3))) * z(4) - (3 * (n - 1) ** 2) / ((n - 2) * (n - 3)),
+  };
+}
+
+// Share of a bell curve (standard normal) below z. Abramowitz and Stegun 7.1.26: off by under 0.0000002.
+export function normalCdf(z) {
+  const t = 1 / (1 + (0.3275911 * Math.abs(z)) / Math.SQRT2);
+  const erf = 1 - t * (0.254829592 + t * (-0.284496736 + t * (1.421413741 + t * (-1.453152027 + t * 1.061405429)))) * Math.exp(-(z * z) / 2);
+  return z >= 0 ? (1 + erf) / 2 : (1 - erf) / 2;
+}
+
+// Counts of values in buckets `width` wide, from the lowest value's bucket to the highest's, empty ones included:
+// [{ from, count }], where a bucket holds from <= x < from + width.
+export function histogram(values, width) {
+  const bucket = (x) => Math.floor(x / width + 1e-9); // the nudge keeps 0.03 in the 3% bucket despite floating-point dust
+  const [lo, hi] = [Math.min(...values.map(bucket)), Math.max(...values.map(bucket))];
+  const counts = Array.from({ length: hi - lo + 1 }, (_, i) => ({ from: +((lo + i) * width).toFixed(12), count: 0 }));
+  for (const x of values) counts[bucket(x) - lo].count++;
+  return counts;
+}
+
 // Round, evenly spaced ticks for a percent axis covering lo to hi (fractions: 0.05 is 5%). Steps are 1, 2, 3
 // or 5 times a power of ten, as ECharts picks them; `decimals` is what a label needs so no two ticks read alike.
 export function niceAxis(lo, hi, splitNumber = 5) {
@@ -190,6 +255,7 @@ export function niceAxis(lo, hi, splitNumber = 5) {
 export function summarize(points, benchmark, nextDate, startValue = 10000) {
   const returns = dailyReturns(points);
   const fullYears = periodReturns(points, 4, nextDate).filter((y) => !y.partial).map((y) => y.value);
+  const tail = tailRisk(periodReturns(points, 7, nextDate));
   return {
     totalReturn: totalReturn(points),
     cagr: cagr(points),
@@ -199,7 +265,9 @@ export function summarize(points, benchmark, nextDate, startValue = 10000) {
     worstYear: fullYears.length ? Math.min(...fullYears) : null,
     sharpe: sharpe(returns),
     sortino: sortino(returns),
-    beta: beta(points, benchmark),
+    ...relative(points, benchmark), // beta, alpha, rSquared, trackingError, informationRatio
+    valueAtRisk: tail?.valueAtRisk ?? null,
+    expectedShortfall: tail?.expectedShortfall ?? null,
     finalValue: startValue * (1 + totalReturn(points)),
   };
 }
