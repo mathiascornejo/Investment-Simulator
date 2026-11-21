@@ -146,13 +146,37 @@ export function xirr(flows) {
 
 export const volatility = (returns) => stdev(returns) * Math.sqrt(TRADING_DAYS);
 
-// shortcut: Sharpe and Sortino assume a 0% risk-free rate. Subtract a daily T-bill return
-// (e.g. from FRED) from each return here once that data is wired in.
-export const sharpe = (returns) => (mean(returns) * TRADING_DAYS) / volatility(returns);
+// The risk-free return over each step of `points` (the steps dailyReturns() measures), read off a price-like bill
+// series such as USTBILL's, so in inflation-adjusted mode it is a real return like the line's. A date between two
+// bill readings takes the latest one before it: interest can land a step late, but none is lost. Past the last
+// reading, the bill keeps growing at its last daily rate. Null when the bill starts after the points do.
+export function billReturns(points, bill) {
+  if (!bill?.length || bill[0].date > points[0].date) return null;
+  const days = (a, b) => (Date.parse(b) - Date.parse(a)) / 864e5;
+  const [prev, last] = [bill.at(-2) ?? bill.at(-1), bill.at(-1)];
+  const perDay = (last.adjClose / prev.adjClose) ** (1 / Math.max(1, days(prev.date, last.date)));
+  let j = 0;
+  const values = points.map(({ date }) => {
+    if (date > last.date) return last.adjClose * perDay ** days(last.date, date);
+    while (bill[j + 1]?.date <= date) j++;
+    return bill[j].adjClose;
+  });
+  return values.slice(1).map((v, i) => v / values[i] - 1);
+}
 
-export function sortino(returns) {
-  const downside = Math.sqrt(mean(returns.map((r) => Math.min(r, 0) ** 2)) * TRADING_DAYS);
-  return (mean(returns) * TRADING_DAYS) / downside;
+// Sharpe and Sortino take the risk-free return off each daily return first. rf: one per return (billReturns),
+// or null for a 0% rate.
+const excess = (returns, rf) => (rf ? returns.map((r, i) => r - rf[i]) : returns);
+
+export function sharpe(returns, rf = null) {
+  const x = excess(returns, rf);
+  return (mean(x) * TRADING_DAYS) / volatility(x);
+}
+
+export function sortino(returns, rf = null) {
+  const x = excess(returns, rf);
+  const downside = Math.sqrt(mean(x.map((r) => Math.min(r, 0) ** 2)) * TRADING_DAYS);
+  return (mean(x) * TRADING_DAYS) / downside;
 }
 
 // Daily returns of two series on the dates both have: [[a, b], ...], plus the sums beta and correlation need.
@@ -180,7 +204,7 @@ export function correlation(points, other) {
 }
 
 // Every figure measured against the benchmark, from daily returns on the dates both have (NaN when they share
-// under two). The risk-free rate is 0%, as in sharpe(). alpha: Jensen's, annualised. trackingError: st. dev. of the
+// under two). The risk-free rate is 0%. alpha: Jensen's, annualised. trackingError: st. dev. of the
 // daily differences x sqrt(252); their sum of squares is varA + varB - 2 cov. informationRatio: NaN when the
 // line is the benchmark itself (no difference to measure).
 export function relative(points, benchmark) {
@@ -293,9 +317,11 @@ export function niceAxis(lo, hi, splitNumber = 5) {
   return { min, max, interval, decimals };
 }
 
-// Every headline number for one series over one window.
-export function summarize(points, benchmark, nextDate, startValue = 10000) {
+// Every headline number for one series over one window. bill: a price-like T-bill series (USTBILL) for the
+// risk-free rate in Sharpe and Sortino; without one, or when it starts too late, they use 0% and riskFree is null.
+export function summarize(points, benchmark, nextDate, startValue = 10000, bill = null) {
   const returns = dailyReturns(points);
+  const rf = billReturns(points, bill);
   const fullYears = periodReturns(points, 4, nextDate).filter((y) => !y.partial).map((y) => y.value);
   const tail = tailRisk(periodReturns(points, 7, nextDate));
   return {
@@ -305,8 +331,9 @@ export function summarize(points, benchmark, nextDate, startValue = 10000) {
     maxDrawdown: maxDrawdown(points),
     bestYear: fullYears.length ? Math.max(...fullYears) : null,
     worstYear: fullYears.length ? Math.min(...fullYears) : null,
-    sharpe: sharpe(returns),
-    sortino: sortino(returns),
+    sharpe: sharpe(returns, rf),
+    sortino: sortino(returns, rf),
+    riskFree: rf ? mean(rf) * TRADING_DAYS : null, // what Sharpe and Sortino took off, as a yearly rate
     ...relative(points, benchmark), // beta, alpha, rSquared, trackingError, informationRatio
     valueAtRisk: tail?.valueAtRisk ?? null,
     expectedShortfall: tail?.expectedShortfall ?? null,

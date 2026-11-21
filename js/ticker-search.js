@@ -50,7 +50,7 @@ export function attachTickerSearch(input, { multi = false, extra = () => [], onP
     const q = typed();
     const answered = remoteFor === q;
     const mine = answered ? remote : []; // name matches from Yahoo, for the text as typed now
-    hits = q ? [...[["CASH", "Cash · 0% return"], ["INFLATION", `Consumer prices · ${countryName(inflation.country)}`], ["TBILL91", "PH T-bill, 91 days · BVAL 3M"], ["TBILL182", "PH T-bill, 182 days · BVAL 6M"], ["TBILL364", "PH T-bill, 364 days · BVAL 1Y"], ...extra()].filter(([t, name]) => t.toUpperCase().includes(q) || name.toUpperCase().includes(q)), ...mine]
+    hits = q ? [...[["CASH", "Cash · 0% return"], ["INFLATION", `Consumer prices · ${countryName(inflation.country)}`], ["TBILL91", "PH T-bill, 91 days · BVAL 3M"], ["TBILL182", "PH T-bill, 182 days · BVAL 6M"], ["TBILL364", "PH T-bill, 364 days · BVAL 1Y"], ["USTBILL", "US T-bill, 3 months · FRED DTB3"], ...extra()].filter(([t, name]) => t.toUpperCase().includes(q) || name.toUpperCase().includes(q)), ...mine]
       .sort((a, b) => rank(b, q) - rank(a, q) || foreign(a) - foreign(b)).slice(0, 10) : [];
     if (q && /^[A-Z0-9.-]{1,12}$/.test(q) && !hits.some(([t]) => t.toUpperCase() === q)) hits[q.length <= 5 ? "unshift" : "push"]([q, "Use this ticker"]); // short text is likely a ticker: offer it first
     const text = !q ? "" : !answered ? "Searching…" : failed ? "Search isn't working right now. Type the exact symbol." :

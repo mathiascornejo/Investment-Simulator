@@ -1,5 +1,5 @@
 import { deflate, priceIndex } from "./inflation.js";
-import { TBILLS, fetchTbill } from "./tbills.js";
+import { TBILLS, fetchTbill, US_TBILL, usTbillSeries, readDtb3 } from "./tbills.js";
 import { countryName } from "./countries.js";
 import { longDate, monthLabel } from "./format.js";
 import { toast } from "./visuals.js";
@@ -126,8 +126,9 @@ function fetchNominal(ticker) {
   if (ticker === "INFLATION") return inflationSeries();
   if (ticker in TBILLS) return fetchTbill(ticker); // static file in the repo, not the proxy
   if (!loading.has(ticker)) {
-    const url = `${PROXY_URL}/prices?ticker=${encodeURIComponent(ticker)}`;
-    const promise = throughCache(url, ({ rows, savedAt }) => fresh(rows, savedAt, Date.now()), () => request(url, ticker), ticker);
+    const us = ticker === US_TBILL; // built from FRED's daily rate, which the Worker serves at /tbill
+    const url = us ? `${PROXY_URL}/tbill` : `${PROXY_URL}/prices?ticker=${encodeURIComponent(ticker)}`;
+    const promise = throughCache(url, ({ rows, savedAt }) => fresh(rows, savedAt, Date.now()), us ? () => tbillRequest(url) : () => request(url, ticker), ticker);
     promise.catch(() => loading.delete(ticker)); // a failed load can be tried again
     loading.set(ticker, promise);
   }
@@ -140,15 +141,27 @@ async function request(url, ticker) {
   return data.map((row) => ({ date: row.date.slice(0, 10), adjClose: row.adjClose }));
 }
 
+// A Worker from before /tbill answers 404: say so plainly rather than "no such symbol".
+async function tbillRequest(url) {
+  try {
+    const rates = readDtb3(await getJson(url, { text: true }));
+    if (rates.length) return usTbillSeries(rates);
+  } catch (error) {
+    if (error.status === 404) throw Object.assign(new Error("US T-bill rates can't be loaded yet. The price service hasn't been updated to supply them."), { retry: false });
+    throw error;
+  }
+  throw Object.assign(new Error("The price service sent no US T-bill rates."), { retry: true });
+}
+
 // One request to the proxy, allowed 20 seconds. After a timeout, a lost connection or a server error it tries once
 // more, 1.5 seconds later; never after 400 (a bad ticker) or 404 (no such ticker), whose answer would be the same.
 // A failure is an Error in plain words, with `retry`: whether trying again later could help (for a Try again button).
-export async function getJson(url, { wait = 1500, limit = 20000 } = {}) {
+export async function getJson(url, { wait = 1500, limit = 20000, text = false } = {}) { // text: the reply as it is, not JSON
   for (let attempt = 1; ; attempt++) {
     let status;
     try {
       const response = await fetch(url, { signal: AbortSignal.timeout(limit) });
-      if (response.ok) return await response.json();
+      if (response.ok) return await (text ? response.text() : response.json());
       status = response.status;
     } catch (error) {
       status = error.name === "TimeoutError" ? "timeout" : error.name === "SyntaxError" ? 502 : "offline"; // SyntaxError: a garbled reply

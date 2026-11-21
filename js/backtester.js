@@ -5,7 +5,7 @@ import { attachTickerSearch } from "./ticker-search.js";
 import { windowOf, summarize, drawdowns, periodReturns, niceAxis, gapRange, drawdownEpisodes, rollingReturns, holdingPeriods, spread, correlation, moments, histogram, normalCdf } from "./stats.js";
 import { loadPortfolios, portfolioSeries } from "./portfolios.js";
 import { CRISES } from "./montecarlo.js";
-import { TBILLS } from "./tbills.js";
+import { TBILLS, US_TBILL } from "./tbills.js";
 import { pct, num, moneyIn, longDate, monthLabel, show, element, downloadCsv } from "./format.js";
 import { glyph, assetClass, countUp, tryAgain } from "./visuals.js";
 import { term } from "./glossary.js";
@@ -90,6 +90,7 @@ const state = {
   benchmark: [], // its whole price history ([] when it didn't load)
   showBench: false, // draw it as a dashed grey line on the growth and drawdown charts
   bench: null, // { label, color, points } over the period on show, when it covers the whole period
+  bill: null, // USTBILL's whole price history, for the risk-free rate in Sharpe and Sortino (null when it didn't load)
   min: "", // first date every asset has
   max: "", // last date every asset has
   start: "",
@@ -123,7 +124,8 @@ const escapeHtml = (text) => text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0
 // Statistics table rows, in labelled groups: [label, key, format, better, why it can be missing].
 // better: 1 when higher is better, -1 when lower is (volatility), 0 when neither is (beta).
 // benchWhy: why the benchmark rows are blank, when they are (the benchmark has no prices for the whole period).
-const statGroups = (name, benchWhy) => [
+// rfWhy: why there is no risk-free rate, so Sharpe and Sortino used 0%.
+const statGroups = (name, benchWhy, rfWhy) => [
   ["Growth", [
     ["Total return", "totalReturn", pct, 1],
     ["Annualised return", "cagr", pct, 1, "Needs at least one year"],
@@ -140,6 +142,7 @@ const statGroups = (name, benchWhy) => [
   ["Reward for the risk", [
     ["Sharpe ratio", "sharpe", num, 1],
     ["Sortino ratio", "sortino", num, 1],
+    ["Risk-free rate (average)", "riskFree", pct, 0, rfWhy],
   ]],
   ["Compared with the benchmark", [
     [`Beta vs ${name}`, "beta", num, 0, benchWhy],
@@ -225,7 +228,9 @@ form.addEventListener("submit", async (event) => {
   $("results").setAttribute("aria-busy", "true"); // results already on screen fade until the new ones are drawn below
   say(`Loading ${lines.map((l) => l.label).join(", ")}…`);
   const wanted = [...new Set([...lines.flatMap((l) => l.tickers), ...bench.tickers])];
-  const loaded = await Promise.allSettled(wanted.map(fetchPrices));
+  // The risk-free rate for Sharpe and Sortino; if it fails, they use 0% and the table says so.
+  const [loaded, bill] = await Promise.all([Promise.allSettled(wanted.map(fetchPrices)), fetchPrices(US_TBILL).catch(() => null)]);
+  state.bill = bill;
   button.disabled = false;
   $("bt-skeleton").hidden = true;
   if (ticket === loads) $("results").setAttribute("aria-busy", "false"); // a later load still running keeps it faded
@@ -501,7 +506,7 @@ function draw() {
 
   state.windows = windows;
   renderChips(windows);
-  const stats = windows.map((w) => summarize(w.points, state.bench ? state.benchmark : [], w.nextDate, START_VALUE));
+  const stats = windows.map((w) => summarize(w.points, state.bench ? state.benchmark : [], w.nextDate, START_VALUE, state.bill));
   state.stats = stats;
   drawTable(windows, stats);
   drawSummary(windows, stats);
@@ -570,7 +575,8 @@ function drawTable(windows, stats) {
   if (pair) columnHeads.push(Object.assign(element("th", "Gap"), { scope: "col", title: "How far ahead the better of the two is. The colour shows which one." }));
 
   const why = state.bench ? undefined : state.benchmark.length ? `${state.benchName} has ${benchGap()}` : `${state.benchName} didn't load`;
-  const groups = statGroups(state.benchName, why).map(([name, metrics]) => element(
+  const rfWhy = `${state.bill ? `US T-bill rates start on ${longDate(state.bill[0].date)}` : "US T-bill rates didn't load"}, so Sharpe and Sortino use 0%`;
+  const groups = statGroups(state.benchName, why, rfWhy).map(([name, metrics]) => element(
     "tbody",
     Object.assign(element("tr", Object.assign(element("th", name), { scope: "rowgroup" }), Object.assign(element("td"), { colSpan: columns })), { className: "group" }),
     ...metrics.map(([label, key, format, better, why]) => {
@@ -625,8 +631,9 @@ function drawDataNotes(latestStarter) {
     if (tickers.includes("CASH")) parts.push("Cash earns no interest.");
     if (tickers.includes("INFLATION")) parts.push(inflationNote());
     if (bills.length) parts.push(`${listed(bills)} built from benchmark yields, earning the yield each day and ignoring price moves.`);
+    if (tickers.includes(US_TBILL)) parts.push(`${US_TBILL} is built from the 3-month US Treasury bill rate (FRED, DTB3), earning it each day and ignoring price moves.`);
     if (raw.length) parts.push(`${listed(raw)} priced without dividends or splits, so returns understate what holders earned, and a split shows as a sudden fall.`);
-    else if (tickers.some((t) => currencyOf(t) && !(t in TBILLS))) parts.push("Dividends are reinvested.");
+    else if (tickers.some((t) => currencyOf(t) && !(t in TBILLS) && t !== US_TBILL)) parts.push("Dividends are reinvested.");
     return element("li", swatch(s.color), element("strong", s.label), `: ${parts.join(" ")}`);
   });
   if (state.series.some((s) => s.points[0].date < state.min)) {

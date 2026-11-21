@@ -85,6 +85,16 @@ async function cpiWorldBank(code) {
   return rows.length ? JSON.stringify(rows) : null;
 }
 
+// US 3-month Treasury bill rate (DTB3: secondary market, discount basis, in percent, each business day since 1954):
+// FRED's keyless CSV, passed through as it is, since reading its 19,000 rows here could overrun the free plan's
+// 10 ms of CPU. The browser reads it (readDtb3 in js/tbills.js).
+async function tbillUs() {
+  const res = await fetch("https://fred.stlouisfed.org/graph/fredgraph.csv?id=DTB3");
+  if (!res.ok) return null;
+  const text = await res.text();
+  return text.split("\n", 1)[0].includes("DTB3") ? text : null; // not an error page
+}
+
 export default {
   async fetch(request, env, ctx) {
     // Stops other websites using this proxy from a browser. A script can fake the Origin header,
@@ -106,6 +116,16 @@ export default {
         ctx.waitUntil(env.CACHE.put(key, body, { expirationTtl: 24 * TTL_SECONDS }));
       }
       return new Response(body, { headers: { "Content-Type": "application/json", ...cors } });
+    }
+    if (request.method === "GET" && url.pathname === "/tbill") {
+      const key = "_tbill_US"; // no ticker can start with "_"
+      let body = await env.CACHE.get(key);
+      if (body === null) {
+        body = await tbillUs().catch(() => null);
+        if (body === null) return json({ error: "No T-bill rates" }, 502, cors);
+        ctx.waitUntil(env.CACHE.put(key, body, { expirationTtl: TTL_SECONDS }));
+      }
+      return new Response(body, { headers: { "Content-Type": "text/csv", ...cors } });
     }
     if (request.method !== "GET" || url.pathname !== "/prices") return json({ error: "Not found" }, 404, cors);
 

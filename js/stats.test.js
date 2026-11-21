@@ -34,6 +34,26 @@ test("volatility, Sharpe and Sortino from daily returns", () => {
   close(s.sortino(up), (0.005 * 252) / Math.sqrt((2e-4 / 4) * 252)); // only the two falls count as risk
 });
 
+test("Sharpe and Sortino take the risk-free return off first", () => {
+  // Returns 2%, 0%, 4%, 0% less 1% a day: 1%, -1%, 3%, -1%. Mean 0.5%; squared gaps from it 25, 225, 625, 225 (x 1e-6).
+  const rf = [0.01, 0.01, 0.01, 0.01];
+  close(s.sharpe([0.02, 0, 0.04, 0], rf), (0.005 * Math.sqrt(252)) / Math.sqrt(1.1e-3 / 3)); // 4.1449
+  close(s.sortino([0.02, 0, 0.04, 0], rf), Math.sqrt(126)); // 1.26 ÷ √((2e-4 ÷ 4) x 252) = 11.225
+});
+
+test("the bill's return over each step: a gap takes the last reading, past the end it keeps its last rate", () => {
+  const bill = series([["2020-01-01", 100], ["2020-01-03", 102]]); // 2% over two days
+  const points = series([["2020-01-01", 1], ["2020-01-02", 1], ["2020-01-03", 1], ["2020-01-05", 1]]);
+  const rf = s.billReturns(points, bill);
+  assert.equal(rf[0], 0); // 2 Jan has no reading: its interest arrives with 3 Jan's
+  close(rf[1], 0.02);
+  close(rf[2], 0.02); // two days past the last reading, at that reading's rate: another 2% over two days
+  assert.equal(s.billReturns(points, bill.slice(1)), null); // no rate known on 1 Jan
+  const stats = s.summarize(points, [], undefined, 10000, bill);
+  close(stats.riskFree, ((0.02 + 0.02) / 3) * 252);
+  assert.equal(s.summarize(points, [], undefined, 10000).riskFree, null);
+});
+
 test("beta is 2 for a series that moves twice as much as the benchmark", () => {
   const bench = series([["2020-01-01", 100], ["2020-01-02", 101], ["2020-01-03", 99.99], ["2020-01-06", 102.9897]]);
   const double = series([["2020-01-01", 100], ["2020-01-02", 102], ["2020-01-03", 99.96], ["2020-01-06", 105.9576]]);

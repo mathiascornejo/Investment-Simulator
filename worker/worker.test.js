@@ -118,3 +118,23 @@ test("/cpi?country=PH reads the World Bank's annual index and rejects bad codes"
   assert.deepEqual(await (await get("/cpi?country=ph")).json(), [{ date: "2022-07-01", value: 148 }, { date: "2024-07-01", value: 159.6 }]);
   assert.equal((await get("/cpi?country=../x")).status, 400);
 });
+
+test("/tbill passes FRED's DTB3 CSV through and caches it", async () => {
+  const csv = "observation_date,DTB3\n2020-01-01,\n2020-01-02,1.52\n";
+  const { get, calls } = setup(() => new Response(csv));
+  const res = await get("/tbill");
+  assert.equal(res.headers.get("Access-Control-Allow-Origin"), ORIGIN);
+  assert.equal(await res.text(), csv);
+  assert.match(calls[0].url, /fredgraph\.csv\?id=DTB3$/);
+  assert.equal((await get("/tbill")).status, 200);
+  assert.equal(calls.length, 1);
+  assert.equal((await get("/tbill", "https://evil.example")).status, 403);
+});
+
+test("/tbill says so when FRED fails or sends something else, and does not cache it", async () => {
+  const { get, store } = setup(() => new Response("down", { status: 500 }));
+  assert.equal((await get("/tbill")).status, 502);
+  const page = setup(() => new Response("<html>Service unavailable</html>"));
+  assert.equal((await page.get("/tbill")).status, 502);
+  assert.equal(store.size + page.store.size, 0);
+});

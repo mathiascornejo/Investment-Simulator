@@ -10,6 +10,7 @@ import { glyph, assetClass, countUp, toast, sparkline, tryAgain } from "./visual
 import { term } from "./glossary.js";
 import { currencyLabel, currencyNotes, currencyWord, sharedCurrency } from "./currency.js";
 import { priceWarnings } from "./quality.js";
+import { US_TBILL } from "./tbills.js";
 import { linkFor, clearLink, linkedPortfolios, copyLink, recipe } from "./links.js";
 
 const BENCHMARK = "SPY";
@@ -39,7 +40,7 @@ const MODELS = {
   },
 };
 // Holding names that the search can't give: these tickers are built by the app, not listed anywhere.
-const names = new Map(Object.entries({ CASH: "Cash", TBILL91: "PH T-bill, 91 days", TBILL182: "PH T-bill, 182 days", TBILL364: "PH T-bill, 364 days" }).map(([t, n]) => [t, Promise.resolve(n)]));
+const names = new Map(Object.entries({ CASH: "Cash", TBILL91: "PH T-bill, 91 days", TBILL182: "PH T-bill, 182 days", TBILL364: "PH T-bill, 364 days", USTBILL: "US T-bill, 3 months" }).map(([t, n]) => [t, Promise.resolve(n)]));
 const TICK = '<svg class="tick" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5l3.2 3L13 4.5"/></svg>'; // as in fields.js
 const escapeHtml = (text) => text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`); // names come from the search or a file
 
@@ -461,10 +462,11 @@ async function showProfile(portfolio) {
 async function drawProfile(portfolio) {
   const asked = portfolio;
   const tickers = [...new Set([...portfolio.holdings.map((h) => h.ticker), BENCHMARK])];
-  let loaded, found;
+  let loaded, found, bill;
   try {
-    // Names are looked up for holdings saved before names were kept (nameOf never fails).
-    [loaded, found] = await Promise.all([Promise.all(tickers.map(fetchPrices)), Promise.all(portfolio.holdings.map((h) => h.name || nameOf(h.ticker)))]);
+    // Names are looked up for holdings saved before names were kept (nameOf never fails). The T-bill rate is for
+    // Sharpe; if it fails, Sharpe uses 0% and the note above the figures says so.
+    [loaded, found, bill] = await Promise.all([Promise.all(tickers.map(fetchPrices)), Promise.all(portfolio.holdings.map((h) => h.name || nameOf(h.ticker))), fetchPrices(US_TBILL).catch(() => null)]);
   } catch (error) {
     if (profiled !== asked) return;
     $("profile").hidden = true; // don't leave an older profile looking current
@@ -509,7 +511,9 @@ async function drawProfile(portfolio) {
       : `Measured over ${newest.ticker}'s whole price history.`) +
     (benchmarkCovers ? "" : ` ${BENCHMARK} has no prices before ${longDate(prices[BENCHMARK][0].date)}, so its figures aren't shown.`) +
     currencyNotes(portfolio.holdings.map((h) => ({ label: h.ticker, tickers: [h.ticker] })), inflation.real, inflation.country).map((note) => ` ${note}`).join("");
-  drawFacts(summarize(points, prices[BENCHMARK]), benchmarkCovers ? summarize(benchmark, prices[BENCHMARK]) : null);
+  const stats = summarize(points, prices[BENCHMARK], undefined, undefined, bill);
+  if (stats.riskFree === null) $("profile-range").textContent += ` US T-bill rates ${bill ? "don't cover this period" : "didn't load"}, so the Sharpe ratio uses a 0% risk-free rate.`;
+  drawFacts(stats, benchmarkCovers ? summarize(benchmark, prices[BENCHMARK], undefined, undefined, bill) : null);
   $("profile-trading").textContent = tradingNote(portfolio, run);
   const corr = drawCorrelation(colored, aligned, weights, returns);
   drawRules(portfolio, prices);
