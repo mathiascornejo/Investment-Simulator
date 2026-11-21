@@ -82,16 +82,14 @@ function usedSaved(name, savedAt) {
 // "Real" mode: every price series comes back in today's dollars (see inflation.js), so each tab's maths
 // (returns, drawdowns, Monte Carlo balances and withdrawals) is inflation-adjusted without knowing it.
 export const inflation = { real: globalThis.localStorage?.getItem("real") === "1", country: globalThis.localStorage?.getItem("country") || "US" };
+// For file names: "nominal", or "real-US" with the country whose inflation is used.
+export const basisTag = () => (inflation.real ? `real-${inflation.country}` : "nominal");
 const cpiLoading = new Map(); // country code -> promise
 const latestReading = new Map(); // country code -> date of its latest CPI reading, once loaded
 export function fetchCpi(country) {
   if (!cpiLoading.has(country)) {
     const url = `${PROXY_URL}/cpi?country=${country}`;
-    const promise = throughCache(url, ({ savedAt }) => Date.now() - savedAt < 24 * HOUR, async () => {
-      const r = await fetch(url);
-      if (!r.ok) throw new Error(`inflation data ${r.status}`);
-      return r.json();
-    }, `${countryName(country)} inflation`);
+    const promise = throughCache(url, ({ savedAt }) => Date.now() - savedAt < 24 * HOUR, () => getJson(url), `${countryName(country)} inflation`);
     promise.then((cpi) => latestReading.set(country, cpi.at(-1).date), () => cpiLoading.delete(country));
     cpiLoading.set(country, promise);
   }
@@ -102,7 +100,7 @@ export async function fetchPrices(ticker) {
   const nominal = await fetchNominal(ticker);
   if (!inflation.real) return nominal;
   let cpi;
-  try { cpi = await fetchCpi(inflation.country); } catch { throw new Error("Couldn't load inflation data, so inflation-adjusted returns aren't available for that country. Turn the option off to see nominal returns."); }
+  try { cpi = await fetchCpi(inflation.country); } catch (error) { throw Object.assign(new Error("Couldn't load inflation data, so inflation-adjusted returns aren't available for that country. Turn the option off to see nominal returns."), { retry: error.retry }); }
   return deflate(nominal, cpi);
 }
 
@@ -110,7 +108,7 @@ export async function fetchPrices(ticker) {
 // Its name avoids "CPI", which could be a listed fund's ticker.
 async function inflationSeries() {
   const country = inflation.country;
-  const cpi = await fetchCpi(country).catch(() => { throw new Error(`Couldn't load ${countryName(country)} inflation figures`); });
+  const cpi = await fetchCpi(country).catch((error) => { throw Object.assign(new Error(`Couldn't load ${countryName(country)} inflation figures`), { retry: error.retry }); });
   return priceIndex(cashSeries(new Date(), cpi[0].date), cpi);
 }
 
@@ -137,14 +135,37 @@ function fetchNominal(ticker) {
 }
 
 async function request(url, ticker) {
-  let response;
-  try {
-    response = await fetch(url);
-  } catch {
-    throw new Error("Couldn't reach the data proxy. Check that it is deployed and that PROXY_URL in js/data.js is its address.");
-  }
-  const data = await response.json().catch(() => null);
-  if (!response.ok) throw new Error(data?.error ?? `The data proxy returned an error (${response.status}).`);
-  if (!Array.isArray(data) || data.length === 0) throw new Error(`No price data for ${ticker}.`);
+  const data = await getJson(url);
+  if (!Array.isArray(data) || data.length === 0) throw Object.assign(new Error(`No price data for ${ticker}.`), { retry: false });
   return data.map((row) => ({ date: row.date.slice(0, 10), adjClose: row.adjClose }));
+}
+
+// One request to the proxy, allowed 20 seconds. After a timeout, a lost connection or a server error it tries once
+// more, 1.5 seconds later; never after 400 (a bad ticker) or 404 (no such ticker), whose answer would be the same.
+// A failure is an Error in plain words, with `retry`: whether trying again later could help (for a Try again button).
+export async function getJson(url, { wait = 1500, limit = 20000 } = {}) {
+  for (let attempt = 1; ; attempt++) {
+    let status;
+    try {
+      const response = await fetch(url, { signal: AbortSignal.timeout(limit) });
+      if (response.ok) return await response.json();
+      status = response.status;
+    } catch (error) {
+      status = error.name === "TimeoutError" ? "timeout" : error.name === "SyntaxError" ? 502 : "offline"; // SyntaxError: a garbled reply
+    }
+    const again = status === "timeout" || status === "offline" || status >= 500;
+    if (!again || attempt === 2) throw loadError(status, limit);
+    await new Promise((resolve) => setTimeout(resolve, wait));
+  }
+}
+
+function loadError(status, limit) {
+  const [message, retry] = {
+    timeout: [`The price service took more than ${limit / 1000} seconds to answer`, true],
+    offline: ["Couldn't reach the price service. Check your connection", true],
+    404: ["No prices were found for that symbol. Check the spelling, or search by company name", false],
+    400: ["That isn't a symbol the price service accepts", false],
+    429: ["The price service has used up its hourly limit. Prices already loaded still work, and new tickers can be tried again within the hour", true],
+  }[status] ?? ["The price service had a problem", true];
+  return Object.assign(new Error(`${message}.`), { retry, status });
 }

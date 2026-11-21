@@ -1,14 +1,17 @@
 // Backtester tab: load tickers, pick a period, draw three charts and a statistics table.
 // All maths lives in stats.js; this file is fetching, state and drawing.
-import { fetchPrices, inflationNote } from "./data.js";
+import { fetchPrices, inflationNote, inflation, basisTag } from "./data.js";
 import { attachTickerSearch } from "./ticker-search.js";
 import { windowOf, summarize, drawdowns, periodReturns, niceAxis, gapRange, drawdownEpisodes, rollingReturns, holdingPeriods, spread, correlation, moments, histogram, normalCdf } from "./stats.js";
 import { loadPortfolios, portfolioSeries } from "./portfolios.js";
 import { CRISES } from "./montecarlo.js";
 import { TBILLS } from "./tbills.js";
-import { pct, num, money, moneyCompact, moneyFit, longDate, monthLabel, show, element } from "./format.js";
-import { glyph, assetClass, countUp } from "./visuals.js";
+import { pct, num, moneyIn, longDate, monthLabel, show, element, downloadCsv } from "./format.js";
+import { glyph, assetClass, countUp, tryAgain } from "./visuals.js";
 import { term } from "./glossary.js";
+import { currencyOf, currencyName, currencyLabel, currencyNotes, currencyWord, sharedCurrency } from "./currency.js";
+import { priceWarnings } from "./quality.js";
+import { linkFor, clearLink, linkedPortfolios, copyLink, offerSave, recipe, exampleCards } from "./links.js";
 
 const DEFAULT_BENCHMARK = "SPY"; // what beta and the other relative figures compare with, unless the Benchmark box says otherwise
 const START_VALUE = 10000;
@@ -28,6 +31,10 @@ const form = $("compare-form");
 const status = $("compare-status");
 const input = $("tickers");
 let chips = []; // what is being compared, in colour order: a ticker or a saved portfolio's name
+let linked = []; // portfolios a share link brought that aren't saved here; they compare like saved ones
+const portfolios = () => [...linked, ...loadPortfolios()];
+// A chip's tickers: a portfolio's holdings, or the ticker itself.
+const tickersOf = (label) => portfolios().find((p) => p.name === label)?.holdings.map((h) => h.ticker) ?? [label];
 
 // Adds a ticker or saved portfolio to the comparison and redraws.
 export function addToCompare(label) {
@@ -37,7 +44,7 @@ export function addToCompare(label) {
 }
 
 input.addEventListener("input", () => { input.value = input.value.replace(/[^A-Za-z0-9.\- ]/g, ""); }); // tickers and portfolio names only
-attachTickerSearch(input, { extra: () => loadPortfolios().map((p) => [p.name, "Saved portfolio"]), onPick: addToCompare });
+attachTickerSearch(input, { extra: () => portfolios().map((p) => [p.name, "Saved portfolio"]), onPick: addToCompare });
 input.addEventListener("keydown", (event) => {
   if (event.key === "Backspace" && !input.value && chips.length) removeChip(chips.at(-1));
 });
@@ -50,19 +57,24 @@ function removeChip(label) {
   say("");
 }
 
-// One chip per compared line: colour, kind of asset, the change over the chosen period.
+// Lines in different currencies (or none in dollars) show each one's currency beside its name.
+const showCodes = (labels) => sharedCurrency(labels.flatMap(tickersOf)) !== "USD";
+const codeTag = (label) => Object.assign(element("small", currencyLabel(tickersOf(label))), { className: "cur" });
+
+// One chip per compared line: colour, kind of asset, its currency when they differ, the change over the chosen period.
 function renderChips(windows = []) {
   input.placeholder = chips.length ? "" : "Add a ticker or portfolio"; // the hint only shows while the box is empty
+  const codes = showCodes(chips);
   $("chips").replaceChildren(
     ...chips.map((label, i) => {
       const w = windows.find((x) => x.label === label);
       const dot = Object.assign(element("span"), { className: "dot" });
       dot.style.background = COLORS[i] ?? MUTED;
-      const isPortfolio = loadPortfolios().some((p) => p.name === label);
+      const isPortfolio = portfolios().some((p) => p.name === label);
       const remove = Object.assign(element("button", "✕"), { type: "button", title: `Remove ${label}` });
       remove.setAttribute("aria-label", `Remove ${label}`);
       remove.addEventListener("click", () => removeChip(label));
-      const parts = [dot, glyph(isPortfolio ? "portfolio" : assetClass(label)), label];
+      const parts = [dot, glyph(isPortfolio ? "portfolio" : assetClass(label)), label, ...(codes && currencyLabel(tickersOf(label)) ? [codeTag(label)] : [])];
       if (w) {
         const change = w.points.at(-1).adjClose / w.points[0].adjClose - 1;
         parts.push(Object.assign(element("span", pct.format(change)), { className: `chg ${change < 0 ? "loss" : "gain"}` }));
@@ -91,7 +103,11 @@ const state = {
   crisis: null, // a past crash from CRISES while its button is on; any other period change turns it off
   rollYears: 1, // years in each stretch of the rolling returns chart
   windows: [],
+  stats: [], // summarize() of each window, for the CSV download
 };
+let unit = moneyIn("USD"); // how amounts read: in the lines' shared currency, or plain numbers when they differ
+let mixed = false; // the lines are in different currencies, so each amount is in its line's own
+let linkPeriod = null; // the period a share link asks for, applied once its lines have loaded
 let charts; // created on first draw, once the containers are visible and have a size
 
 // Formatting (the shared formatters live in format.js; these are only for chart axes)
@@ -111,7 +127,7 @@ const statGroups = (name, benchWhy) => [
   ["Growth", [
     ["Total return", "totalReturn", pct, 1],
     ["Annualised return", "cagr", pct, 1, "Needs at least one year"],
-    ["$10,000 became", "finalValue", money, 1],
+    [`${unit.money.format(START_VALUE)} became`, "finalValue", unit.money, 1],
   ]],
   ["Ups and downs", [
     ["Volatility (annualised)", "volatility", pct, -1],
@@ -168,7 +184,7 @@ form.addEventListener("submit", async (event) => {
   // Saved portfolios are typed by name (names may hold spaces), so lift those out; what's left is tickers.
   let text = [...chips, input.value].filter((t) => t.trim()).join(", ");
   const picked = [];
-  for (const p of [...loadPortfolios()].sort((a, b) => b.name.length - a.name.length)) {
+  for (const p of portfolios().sort((a, b) => b.name.length - a.name.length)) {
     const name = p.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const found = new RegExp(`(^|,)\\s*${name}\\s*(?=,|$)`, "i");
     if (found.test(text)) { picked.push(p); text = text.replace(found, "$1"); }
@@ -180,7 +196,7 @@ form.addEventListener("submit", async (event) => {
   }
   // The benchmark: a saved portfolio by name, else a ticker. An empty box means the default.
   const benchText = benchInput.value.trim() || DEFAULT_BENCHMARK;
-  const benchPortfolio = loadPortfolios().find((p) => p.name.toUpperCase() === benchText.toUpperCase());
+  const benchPortfolio = portfolios().find((p) => p.name.toUpperCase() === benchText.toUpperCase());
   const bench = benchPortfolio
     ? { label: benchPortfolio.name, tickers: benchPortfolio.holdings.map((h) => h.ticker), portfolio: benchPortfolio }
     : { label: benchText.toUpperCase(), tickers: [benchText.toUpperCase()] };
@@ -217,29 +233,35 @@ form.addEventListener("submit", async (event) => {
   const errors = {};
   wanted.forEach((t, i) => {
     if (loaded[i].status === "fulfilled") prices[t] = loaded[i].value;
-    else errors[t] = loaded[i].reason.message.replace(/\.$/, "");
+    else errors[t] = loaded[i].reason;
   });
+  const why = (t) => errors[t].message.replace(/\.$/, "");
+  // After the message: anything odd in the prices that did load, and a Try again button when it could help.
+  const report = (problems) => {
+    say([...problems, priceWarnings(prices)].filter(Boolean).join(" "), problems.length > 0);
+    if (Object.values(errors).some((e) => e.retry !== false)) tryAgain(status, () => form.requestSubmit());
+  };
 
   const problems = [];
   state.series = [];
   lines.forEach((l, i) => {
     const missing = l.tickers.find((t) => !prices[t]);
-    if (missing) return problems.push(`${l.label} didn't load: ${errors[missing]}.`);
+    if (missing) return problems.push(`${l.label} didn't load: ${why(missing)}.`);
     const points = l.portfolio ? portfolioSeries(l.portfolio, prices).points : prices[l.label];
     if (points.length < 3) return problems.push(`${l.label} can't be measured: its holdings have no dates in common.`);
-    state.series.push({ label: l.label, color: COLORS[i], points });
+    state.series.push({ label: l.label, color: COLORS[i], points, tickers: l.tickers });
   });
   state.benchName = bench.label;
   state.benchmark = [];
   const benchMissing = bench.tickers.find((t) => !prices[t]);
   const benchPoints = benchMissing ? [] : bench.portfolio ? portfolioSeries(bench.portfolio, prices).points : prices[bench.label];
-  if (benchMissing) problems.push(`The benchmark, ${bench.label}, didn't load: ${errors[benchMissing]}. Figures compared with it are left blank.`);
+  if (benchMissing) problems.push(`The benchmark, ${bench.label}, didn't load: ${why(benchMissing)}. Figures compared with it are left blank.`);
   else if (benchPoints.length < 3) problems.push(`The benchmark, ${bench.label}, can't be used: its holdings have no dates in common.`);
   else state.benchmark = benchPoints;
 
   if (!state.series.length) {
     $("results").hidden = true;
-    say(problems.join(" "), true);
+    report(problems);
     return;
   }
 
@@ -252,15 +274,32 @@ form.addEventListener("submit", async (event) => {
     say("These assets have no dates in common, so they can't be compared.", true);
     return;
   }
-  // 1 year is the default period; a new benchmark keeps the period on show when it still fits.
-  if (!(keep && state.start >= state.min && state.end <= state.max)) applyPreset("12");
-  drawDataNotes(lines, latestStarter);
+  // 1 year is the default period; a new benchmark keeps the period on show when it still fits; a link brings its own.
+  const asked = linkPeriod;
+  linkPeriod = null;
+  if (asked) applyLinkPeriod(asked);
+  else if (!(keep && state.start >= state.min && state.end <= state.max)) applyPreset("12");
+  drawDataNotes(latestStarter);
   drawHolding();
 
-  say(problems.join(" "), problems.length > 0);
+  report(problems);
   $("results").hidden = false;
+  $("bt-examples").hidden = true; // the example cards go after the first comparison
+  $("bt-share-status").replaceChildren();
   draw();
 });
+
+// A share link's period: a past crash (when a line has prices for all of it), a preset, or From and To dates
+// (kept inside the dates every line has). Anything else falls back to 1 year.
+function applyLinkPeriod({ preset, from, to, crisis }) {
+  const crash = CRISES.find((c) => c.name === crisis);
+  if (crash && state.series.some((s) => covers(s.points, crash.start, crash.end))) return Object.assign(state, { crisis: crash, preset: "", start: crash.start, end: crash.end });
+  if (["1", "12", "36", "60", "120", "max"].includes(preset)) return applyPreset(preset);
+  const day = /^\d{4}-\d\d-\d\d$/;
+  const [start, end] = [from < state.min ? state.min : from, to > state.max ? state.max : to];
+  if (day.test(from) && day.test(to) && start < end) return Object.assign(state, { preset: "", crisis: null, start, end });
+  applyPreset("12");
+}
 
 // Controls
 for (const group of document.querySelectorAll(".presets")) group.addEventListener("click", (event) => {
@@ -302,7 +341,7 @@ function benchChanged() {
   keepPeriod = true;
   form.requestSubmit();
 }
-attachTickerSearch(benchInput, { extra: () => loadPortfolios().map((p) => [p.name, "Saved portfolio"]), onPick: (text) => { benchInput.value = text; benchChanged(); } });
+attachTickerSearch(benchInput, { extra: () => portfolios().map((p) => [p.name, "Saved portfolio"]), onPick: (text) => { benchInput.value = text; benchChanged(); } });
 benchInput.addEventListener("change", benchChanged);
 $("show-bench").addEventListener("change", (event) => {
   state.showBench = event.target.checked;
@@ -454,9 +493,16 @@ function draw() {
     : drawn ? `The grey dashed line is the benchmark, ${benchTitle()}.`
     : state.showBench && compared ? `The benchmark, ${state.benchName}, is already one of the lines, so it isn't drawn twice.` : "";
 
+  // Amounts in the lines' shared currency; when they differ, plain numbers, each in its own line's currency.
+  const code = sharedCurrency(windows.flatMap((w) => w.tickers));
+  unit = moneyIn(code);
+  mixed = code === "mixed";
+  $("growth-title").textContent = `Growth of ${unit.money.format(START_VALUE)}${inflation.real ? ` (today's ${currencyWord(code)})` : ""}`;
+
   state.windows = windows;
   renderChips(windows);
   const stats = windows.map((w) => summarize(w.points, state.bench ? state.benchmark : [], w.nextDate, START_VALUE));
+  state.stats = stats;
   drawTable(windows, stats);
   drawSummary(windows, stats);
   drawGapNote(windows);
@@ -519,7 +565,8 @@ const shareOf = (x) => (x > 0 && x < 0.005 ? "under 1%" : x < 1 && x > 0.995 ? "
 function drawTable(windows, stats) {
   const pair = windows.length === 2;
   const columns = windows.length + (pair ? 1 : 0);
-  const columnHeads = windows.map((w) => Object.assign(element("th", swatch(w.color), w.label), { scope: "col" }));
+  const codes = showCodes(windows.map((w) => w.label));
+  const columnHeads = windows.map((w) => Object.assign(element("th", swatch(w.color), w.label, ...(codes ? [codeTag(w.label)] : [])), { scope: "col" }));
   if (pair) columnHeads.push(Object.assign(element("th", "Gap"), { scope: "col", title: "How far ahead the better of the two is. The colour shows which one." }));
 
   const why = state.bench ? undefined : state.benchmark.length ? `${state.benchName} has ${benchGap()}` : `${state.benchName} didn't load`;
@@ -562,23 +609,14 @@ function gapCell(windows, [a, b], format, better) {
   return Object.assign(element("td", swatch(ahead.color), hiddenText(`${ahead.label} ahead by `), size), { className: "gap", title: `${ahead.label} is ahead by ${size}` });
 }
 
-// Price currency by market suffix (nothing is converted). Plain tickers are US listings.
-const CURRENCY = { L: "British pence", PS: "Philippine pesos", T: "Japanese yen", TO: "Canadian dollars", AX: "Australian dollars", HK: "Hong Kong dollars", SW: "Swiss francs", DE: "euros", PA: "euros", AS: "euros", MI: "euros", KS: "Korean won", NS: "Indian rupees", SI: "Singapore dollars" };
-function currencyOf(ticker) {
-  if (ticker === "CASH" || ticker === "INFLATION") return null; // no prices to speak of: it earns nothing, or it is an index
-  if (ticker in TBILLS) return "Philippine pesos";
-  const suffix = ticker.split(".")[1];
-  return suffix ? CURRENCY[suffix] ?? `the local currency of the .${suffix} market` : "US dollars";
-}
 const listed = (tickers) => `${tickers.join(" and ")} ${tickers.length > 1 ? "are" : "is"}`;
 
 // About the data, under the table: each line's first and last price, its currency and what its prices leave out,
 // and which line limits the dates the comparison can cover. Built once per load: it doesn't depend on the period on show.
-function drawDataNotes(lines, latestStarter) {
-  const tickersOf = (s) => lines.find((l) => l.label === s.label).tickers;
+function drawDataNotes(latestStarter) {
   const notes = state.series.map((s) => {
-    const tickers = tickersOf(s);
-    const currencies = [...new Set(tickers.map(currencyOf).filter(Boolean))];
+    const tickers = s.tickers;
+    const currencies = [...new Set(tickers.map(currencyOf).filter(Boolean))].map(currencyName);
     const raw = tickers.filter((t) => t.endsWith(".PS"));
     const bills = tickers.filter((t) => t in TBILLS);
     const parts = [`prices from ${longDate(s.points[0].date)} to ${longDate(s.points.at(-1).date)}${tickers.length > 1 ? ", the dates all its holdings have" : ""}.`];
@@ -598,9 +636,7 @@ function drawDataNotes(lines, latestStarter) {
   if (state.series.some((s) => s.points.at(-1).date > state.max)) {
     notes.push(element("li", `The latest it can end is ${longDate(state.max)}, because ${ender.label}'s prices stop then.`));
   }
-  if (new Set(state.series.flatMap((s) => tickersOf(s).map(currencyOf).filter(Boolean))).size > 1) {
-    notes.push(element("li", "Not everything here is in the same currency. Each return is in its own currency, and exchange-rate moves are left out."));
-  }
+  notes.push(...currencyNotes(state.series.map((s) => ({ label: s.label, tickers: s.tickers })), inflation.real, inflation.country).map((text) => element("li", text)));
   $("data-notes").replaceChildren(...notes);
 }
 
@@ -694,8 +730,10 @@ function endText(w) {
   const narrow = charts.growth.getWidth() < 560;
   const most = narrow ? 8 : 18;
   // On narrow charts the value is shortened too ($168K), so the labels leave room for the lines.
-  const value = (narrow ? moneyCompact : moneyFit).format((START_VALUE * w.points.at(-1).adjClose) / w.points[0].adjClose);
-  return `${name.length > most ? `${name.slice(0, most - 1)}…` : name} ${value}`;
+  const value = (narrow ? unit.moneyCompact : unit.moneyFit).format((START_VALUE * w.points.at(-1).adjClose) / w.points[0].adjClose);
+  // In different currencies each value is in its own line's, so its code follows (the benchmark's too).
+  const code = mixed ? ` ${currencyLabel(w.tickers ?? tickersOf(w.label))}` : "";
+  return `${name.length > most ? `${name.slice(0, most - 1)}…` : name} ${value}${code}`.trimEnd();
 }
 
 // One fixed plot area for the growth and drawdown charts, so their date axes line up exactly under the
@@ -744,7 +782,7 @@ function crisisBands(chart, grid, data) {
 // from fixed templates, and names go in as text, never as HTML.
 function growthLead(windows) {
   const finals = windows.map((w) => (START_VALUE * w.points.at(-1).adjClose) / w.points[0].adjClose);
-  const fit = (v) => moneyFit.format(v);
+  const fit = (v) => unit.moneyFit.format(v);
   if (windows.length === 1) {
     const change = finals[0] / START_VALUE - 1;
     const how = pct.format(Math.abs(change)) === pct.format(0) ? "unchanged" : `${change < 0 ? "down" : "up"} ${pct.format(Math.abs(change))}`;
@@ -758,11 +796,11 @@ function growthLead(windows) {
 
 function drawGrowth(windows, grid, bench) {
   $("growth-lead").textContent = growthLead(windows);
-  const base = frame(longDate, money);
+  const base = frame(longDate, unit.money);
   const growth = (w) => resample(w.points.map((p) => [p.date, (START_VALUE * p.adjClose) / w.points[0].adjClose]));
   const data = windows.map(growth);
   const benchData = bench && growth(bench);
-  const axisLabel = { ...base.yAxis.axisLabel, formatter: (v) => moneyCompact.format(v) };
+  const axisLabel = { ...base.yAxis.axisLabel, formatter: (v) => unit.moneyCompact.format(v) };
   // $10,000 always stays on the axis (a weekly or monthly step can skip the first day), so the start line shows.
   let yAxis = { ...base.yAxis, type: "value", scale: true, axisLabel, min: (v) => (v.min > START_VALUE ? START_VALUE : null), max: (v) => (v.max < START_VALUE ? START_VALUE : null) };
   if (state.log) {
@@ -776,7 +814,7 @@ function drawGrowth(windows, grid, bench) {
     silent: true,
     symbol: "none",
     lineStyle: { color: MUTED, type: "dashed", width: 1, opacity: 0.6 },
-    label: { position: "insideEndTop", formatter: `Start ${money.format(START_VALUE)}`, color: MUTED, fontSize: 11 },
+    label: { position: "insideEndTop", formatter: `Start ${unit.money.format(START_VALUE)}`, color: MUTED, fontSize: 11 },
     data: [{ yAxis: START_VALUE }],
   };
   charts.growth.setOption(
@@ -1028,11 +1066,11 @@ function drawSummary(windows, stats) {
   const versus = windows.length === 2;
   const sides = windows.map((w, i) => {
     const big = Object.assign(element("strong"), { className: "big" });
-    countUp(big, stats[i].finalValue, money, `bt|${w.label}|finalValue`);
+    countUp(big, stats[i].finalValue, unit.money, `bt|${w.label}|finalValue`);
     // The gain in dollars and percent under the ending value, and where it started from.
     const gain = stats[i].finalValue - START_VALUE;
-    const change = Object.assign(element("p", `${withSign(gain, moneyFit)} (${withSign(stats[i].totalReturn, pct)})`), { className: `change ${gain > 0 ? "gain" : gain < 0 ? "loss" : ""}` });
-    const from = Object.assign(element("p", `from ${money.format(START_VALUE)} on ${longDate(w.points[0].date)}`), { className: "from" });
+    const change = Object.assign(element("p", `${withSign(gain, unit.moneyFit)} (${withSign(stats[i].totalReturn, pct)})`), { className: `change ${gain > 0 ? "gain" : gain < 0 ? "loss" : ""}` });
+    const from = Object.assign(element("p", `from ${unit.money.format(START_VALUE)}${mixed ? ` ${currencyLabel(w.tickers)}` : ""} on ${longDate(w.points[0].date)}`), { className: "from" });
     const facts = rows.map(([label, key, format, better]) => {
       const value = element("dd");
       countUp(value, stats[i][key], format, `bt|${w.label}|${key}`);
@@ -1311,6 +1349,83 @@ function drawScatter(windows, stats) {
   );
 }
 
+// Download CSV: one row per trading day in the period (each line's value of 10,000 and its drawdown), then the
+// statistics at full precision. Dates every line lacks are blank cells rather than filled in.
+$("bt-csv").addEventListener("click", () => {
+  const windows = state.windows;
+  const codes = showCodes(windows.map((w) => w.label));
+  const days = windows.map((w) => {
+    const dd = drawdowns(w.points);
+    return new Map(w.points.map((p, i) => [p.date, [(START_VALUE * p.adjClose) / w.points[0].adjClose, dd[i].value]]));
+  });
+  const dates = [...new Set(windows.flatMap((w) => w.points.map((p) => p.date)))].sort();
+  const name = (w) => `${w.label}${codes ? ` (${currencyLabel(w.tickers)})` : ""}`;
+  const metrics = statGroups(state.benchName).flatMap(([, rows]) => rows);
+  downloadCsv([
+    ["Date", ...windows.flatMap((w) => [`${name(w)} value of ${START_VALUE}`, `${w.label} drawdown (fraction)`])],
+    ...dates.map((date) => [date, ...days.flatMap((d) => d.get(date) ?? [null, null])]),
+    [],
+    ["Statistic (returns as fractions: 0.1 is 10%)", ...windows.map(name)],
+    ...metrics.map(([label, key]) => [label, ...state.stats.map((s) => s[key])]),
+  ], `backtest-${state.start}-to-${state.end}-${basisTag()}.csv`);
+});
+
+// Copy link: the lines (saved portfolios as their full recipe), benchmark, period, step and scale.
+$("bt-link").addEventListener("click", () => {
+  const used = [...new Set([...chips, state.benchName].map((label) => portfolios().find((p) => p.name === label)).filter(Boolean))];
+  copyLink("backtester", [
+    ...chips.map((label) => ["l", label]),
+    ...used.map((p) => ["pf", recipe(p)]),
+    ...(state.benchName === DEFAULT_BENCHMARK ? [] : [["b", state.benchName]]),
+    ...(state.crisis ? [["crisis", state.crisis.name]] : state.preset ? [["p", state.preset]] : [["from", state.start], ["to", state.end]]),
+    ...(state.step === "day" ? [] : [["step", state.step]]),
+    ...(state.log ? [["log", "1"]] : []),
+    ...(state.showBench ? [["showb", "1"]] : []),
+  ], $("bt-share-status"));
+});
+
+// Opening a share link (or an example card): set everything it names, then compare.
+function openLink() {
+  const link = linkFor("backtester");
+  if (!link) return;
+  clearLink("backtester");
+  const { found, bad } = linkedPortfolios(link);
+  linked = found.filter((f) => !f.saved).map((f) => f.portfolio);
+  const named = (label) => found.find((f) => f.asked === label)?.portfolio.name ?? label; // a clash renamed it "(2)"
+  chips = [...new Set(link.getAll("l").map(named))].slice(0, MAX_SERIES);
+  benchInput.value = named(link.get("b") || DEFAULT_BENCHMARK);
+  state.showBench = $("show-bench").checked = link.get("showb") === "1";
+  state.log = $("log-scale").checked = link.get("log") === "1";
+  state.step = ["week", "month"].includes(link.get("step")) ? link.get("step") : "day";
+  linkPeriod = { preset: link.get("p"), from: link.get("from") ?? "", to: link.get("to") ?? "", crisis: link.get("crisis") };
+  offerSave($("bt-linked"), linked, (p) => { linked = linked.filter((x) => x !== p); });
+  if (bad) $("bt-linked").append(element("span", `${bad === 1 ? "A portfolio" : `${bad} portfolios`} in the link couldn't be read, so ${bad === 1 ? "it was" : "they were"} left out.`));
+  if (!chips.length) return renderChips();
+  form.requestSubmit();
+}
+addEventListener("hashchange", openLink);
+
+// Examples shown until the first comparison, each a share link with its lesson. Each lesson was checked against
+// the result it opens.
+exampleCards($("bt-examples"), "backtester", [
+  {
+    title: "Bonds in the 2008 crash",
+    lesson: "From the stock market's high in October 2007 to its low in March 2009, US stocks (SPY) lost about half their value while US bonds (AGG) gained.",
+    link: [["l", "SPY"], ["l", "AGG"], ["crisis", "2008 financial crisis"]],
+  },
+  {
+    title: "Home or the world",
+    lesson: "Since 2011, US stocks (VTI) have grown far faster than stocks in the rest of the world (VXUS).",
+    link: [["l", "VTI"], ["l", "VXUS"], ["p", "max"]],
+  },
+  {
+    title: "Gold beside stocks",
+    lesson: "Gold (GLD) and US stocks (SPY) have hardly moved together, so one often held up while the other fell.",
+    link: [["l", "GLD"], ["l", "SPY"], ["p", "max"]],
+  },
+]);
+
 renderChips();
+openLink();
 
 addEventListener("inflation-changed", () => { if (!$("results").hidden) form.requestSubmit(); });

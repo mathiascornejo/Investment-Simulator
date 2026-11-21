@@ -172,3 +172,16 @@ export function toast(message, action, onAction) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => node.classList.remove("show"), 6000);
 }
+
+// A "Try again" button after a load error in a status line. It runs `again`, which loads only what failed:
+// prices that did load are kept for the visit. The button goes with the message, so focus moves to the status
+// line, which then says what is happening.
+export function tryAgain(node, again) {
+  const button = Object.assign(document.createElement("button"), { type: "button", className: "quiet try-again", textContent: "Try again" });
+  button.addEventListener("click", () => {
+    node.tabIndex = -1;
+    node.focus();
+    again();
+  });
+  node.append(" ", button);
+}

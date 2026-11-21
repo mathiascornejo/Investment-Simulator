@@ -1,9 +1,10 @@
 // Tabs: each nav link points at a section id; only the section named in the URL hash is shown.
-// The glossary takes an entry after a slash (#glossary/sharpe-ratio); glossary.js scrolls to it.
+// The glossary takes an entry after a slash (#glossary/sharpe-ratio); glossary.js scrolls to it. A share link has
+// settings after a question mark (#backtester?l=SPY&l=QQQ); each tab reads its own (see links.js).
 const tabs = ["backtester", "creator", "monte-carlo", "glossary"];
 
 function showTab() {
-  const hash = location.hash.slice(1).split("/")[0];
+  const hash = location.hash.slice(1).split(/[/?]/)[0];
   const current = tabs.includes(hash) ? hash : tabs[0];
   for (const id of tabs) {
     document.getElementById(id).hidden = id !== current;
@@ -58,7 +59,7 @@ addEventListener("unhandledrejection", () => {
 try {
   // Inflation toggle: remembered, and every tab that is showing results re-runs them with real or nominal prices.
   const { inflation, fetchCpi } = await import("./data.js");
-  const { countryPicker, countryName } = await import("./countries.js");
+  const { countryPicker, countryName, COUNTRIES } = await import("./countries.js");
   const { cpiFacts } = await import("./inflation.js");
   const { pct, monthLabel, element } = await import("./format.js");
   const real = document.getElementById("real-toggle");
@@ -71,9 +72,7 @@ try {
     country.hidden = info.hidden = !on;
     if (!on && note.matches(":popover-open")) note.hidePopover();
   };
-  const growthTitle = () => { document.getElementById("growth-title").textContent = inflation.real ? "Growth of $10,000 (today's dollars)" : "Growth of $10,000"; };
-  const changed = () => { growthTitle(); dispatchEvent(new Event("inflation-changed")); };
-  growthTitle();
+  const changed = () => dispatchEvent(new Event("inflation-changed"));
   real.checked = inflation.real;
   showControls(inflation.real);
   showCountry(inflation.country);
@@ -89,6 +88,26 @@ try {
     localStorage.setItem("real", real.checked ? "1" : "0");
     changed();
   });
+  // A share link carries the sender's setting (real=1&country=PH). It is applied before the tabs load, so their
+  // first run uses it, and again when a link is opened in a page that is already showing.
+  const fromLink = () => {
+    const query = location.hash.split("?")[1];
+    const link = query === undefined ? null : new URLSearchParams(query);
+    if (!link?.has("real")) return;
+    const on = link.get("real") === "1";
+    const code = COUNTRIES.some(([c]) => c === link.get("country")) ? link.get("country") : inflation.country;
+    if (on === inflation.real && code === inflation.country) return;
+    Object.assign(inflation, { real: on, country: code });
+    real.checked = on;
+    localStorage.setItem("real", on ? "1" : "0");
+    localStorage.setItem("country", code);
+    showControls(on);
+    showCountry(code);
+    changed();
+  };
+  fromLink();
+  addEventListener("hashchange", fromLink);
+
   // Another browser tab of the site saved portfolios or changed the inflation setting: follow it here too.
   // (The browser only tells the other tabs, so nothing here runs twice.) A null key means storage was cleared.
   addEventListener("storage", (e) => {

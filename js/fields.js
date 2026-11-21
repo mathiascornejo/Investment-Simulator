@@ -76,9 +76,12 @@ export function liveField(input, { compact = false, clear = false, ticker = inpu
   input.addEventListener("input", run);
   input.addEventListener("focusout", run);
   box.addEventListener("animationend", () => box.classList.remove("shake"));
-  // A starting value that is fine is read back at once (no tick until the box is used).
-  if (note) note.textContent = format && input.value !== "" && input.validity.valid ? format(Number(input.value)) : hint;
+  // A starting value that is fine is read back at once (no tick until the box is used). Returned, so a caller whose
+  // format changed (another currency) can read the value back again.
+  const readBack = () => { if (note && !bad) note.textContent = format && input.value !== "" && input.validity.valid ? format(Number(input.value)) : hint; };
+  readBack();
   box.classList.toggle("has-value", input.value !== "");
+  return readBack;
 }
 
 // Points at the box that stopped a form: scrolls it into view, focuses it, and shakes it red like a failed live

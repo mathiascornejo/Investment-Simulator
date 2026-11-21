@@ -1,16 +1,19 @@
 // Monte Carlo tab: simulate many futures for one portfolio (or ticker) and show past crises.
 // The maths lives in montecarlo.js; this file is inputs, loading and drawing.
-import { fetchPrices, inflation } from "./data.js";
+import { fetchPrices, inflation, basisTag } from "./data.js";
 import { attachTickerSearch } from "./ticker-search.js";
 import { dropdown, liveField, flagField } from "./fields.js";
 import { periodReturns } from "./stats.js";
 import { loadPortfolios, portfolioSeries } from "./portfolios.js";
 import { simulate, crisisTest, historicalRun, crisisMonths, failureYears, logStats, everyStart, shareAtOrBelow, percentile, withStandIns, standIns, CRISES } from "./montecarlo.js";
-import { pct, money, moneyFit, moneyCompact, longDate, monthLabel, element } from "./format.js";
+import { pct, moneyIn, currencySymbol, longDate, monthLabel, element, downloadCsv } from "./format.js";
 import { frame } from "./backtester.js";
-import { gauge, countUp, reducedMotion } from "./visuals.js";
+import { gauge, countUp, reducedMotion, tryAgain } from "./visuals.js";
 import { term } from "./glossary.js";
 import { countryName } from "./countries.js";
+import { currencyNotes, currencyWord, sharedCurrency } from "./currency.js";
+import { priceWarnings } from "./quality.js";
+import { linkFor, clearLink, linkedPortfolios, copyLink, offerSave, recipe, exampleCards } from "./links.js";
 
 const BENCHMARK = "SPY";
 const MIN_MONTHS = 24; // fewer real months than this is too little history to resample from
@@ -29,10 +32,25 @@ const $ = (id) => document.getElementById(id);
 attachTickerSearch($("mc-ticker"));
 $("mc-ticker").placeholder = "Add a ticker";
 $("mc-ticker").addEventListener("input", (e) => { e.target.value = e.target.value.replace(/[^A-Za-z0-9.\-]/g, ""); }); // same as the Backtester box
+// Amounts are in the currency of the portfolio or ticker (plain numbers when its holdings differ): the form's as
+// chosen now, the results' as of the run on screen.
+let formUnit = moneyIn("USD");
+let { money, moneyFit, moneyCompact } = formUnit;
+let linked = null; // a portfolio a share link brought that isn't saved here
+let linkSeed = null; // the random seed a share link asks for, used by the next run only
+const choices = () => [...loadPortfolios(), ...(linked ? [linked] : [])];
+const chosen = () => choices().find((p) => p.name === $("mc-portfolio").value);
+function showFormUnit() {
+  const p = chosen();
+  formUnit = moneyIn(sharedCurrency(p ? p.holdings.map((h) => h.ticker) : [$("mc-ticker").value.trim().toUpperCase()]));
+  const symbol = currencySymbol(formUnit);
+  for (const node of $("mc-form").querySelectorAll("[data-unit]")) node.textContent = symbol && `(${symbol})`;
+  readBacks.forEach((readBack) => readBack()); // the amounts in that currency
+}
 // Money boxes read the amount back with commas once it is valid.
-const yearly = (v) => `${money.format(v)} a year`;
-const formats = { "mc-start": (v) => money.format(v), "mc-withdrawal": yearly, "mc-contribution": yearly };
-for (const id of ["mc-start", "mc-withdrawal", "mc-growth", "mc-contribution", "mc-fee", "mc-years"]) liveField($(id), { format: formats[id] });
+const yearly = (v) => `${formUnit.money.format(v)} a year`;
+const formats = { "mc-start": (v) => formUnit.money.format(v), "mc-withdrawal": yearly, "mc-contribution": yearly };
+const readBacks = ["mc-start", "mc-withdrawal", "mc-growth", "mc-contribution", "mc-fee", "mc-years"].map((id) => liveField($(id), { format: formats[id] }));
 // What each box needs, said in the status line when a run is refused (the box itself is pointed at too).
 const NEEDS = {
   "mc-start": "Check the starting amount: from $1 to $1 trillion.",
@@ -74,16 +92,20 @@ function chartIn(id) {
 function listPortfolios() {
   const picker = $("mc-portfolio");
   const before = picker.value;
-  const saved = loadPortfolios();
-  picker.replaceChildren(...saved.map((p) => new Option(p.name, p.name)), new Option("A single ticker", ""));
+  const saved = choices();
+  picker.replaceChildren(...saved.map((p) => new Option(p === linked ? `${p.name} (from a link)` : p.name, p.name)), new Option("A single ticker", ""));
   if (saved.some((p) => p.name === before) || (before === "" && picker.dataset.ready)) picker.value = before;
   picker.dataset.ready = "yes";
   $("mc-ticker-field").hidden = picker.value !== "";
+  showFormUnit();
 }
 addEventListener("portfolios-changed", listPortfolios);
 $("mc-portfolio").addEventListener("change", () => {
   $("mc-ticker-field").hidden = $("mc-portfolio").value !== "";
+  showFormUnit();
 });
+// A picked suggestion fills the box without an input event: keyup (Enter) and click (a suggestion) catch it.
+for (const type of ["input", "keyup", "change", "click"]) $("mc-ticker-field").addEventListener(type, showFormUnit);
 listPortfolios();
 dropdown($("mc-portfolio"), { help: {} });
 dropdown($("mc-rule"), {
@@ -138,7 +160,7 @@ form.addEventListener("submit", async (event) => {
 });
 
 async function run() {
-  const portfolio = loadPortfolios().find((p) => p.name === $("mc-portfolio").value);
+  const portfolio = chosen();
   const ticker = $("mc-ticker").value.trim().toUpperCase();
   if (!portfolio && !/^[A-Z0-9.-]{1,12}$/.test(ticker)) {
     say("Check the ticker: letters, digits, dots or dashes, up to 12.", true);
@@ -165,9 +187,13 @@ async function run() {
   const name = portfolio ? portfolio.name : ticker;
   // Read now, before loading: the form can change while prices load.
   const ranFrom = formNow();
-  const basis = inflation.real ? `Today's dollars, adjusted for ${countryName(inflation.country)} inflation` : "Future dollars, not adjusted for inflation";
-  const settings = describe({ name, startValue, annualWithdrawal, growth, rule, annualContribution, contributeMonthly, fee, years, runs, crisis, basis });
+  const link = linkPairs(portfolio);
   const holdings = portfolio ? portfolio.holdings.map((h) => h.ticker) : [ticker];
+  const code = sharedCurrency(holdings);
+  ({ money, moneyFit, moneyCompact } = moneyIn(code));
+  const word = currencyWord(code);
+  const basis = inflation.real ? `Today's ${word}, adjusted for ${countryName(inflation.country)} inflation` : `Future ${word}, not adjusted for inflation`;
+  const settings = describe({ name, startValue, annualWithdrawal, growth, rule, annualContribution, contributeMonthly, fee, years, runs, crisis, basis });
   const tickers = [...new Set([...holdings, BENCHMARK])];
   // Older funds that stand in for young ones in the crisis tests. One that fails to load is left out, and the table says so.
   const spares = [...new Set(tickers.flatMap(standIns))].filter((t) => !tickers.includes(t));
@@ -182,7 +208,9 @@ async function run() {
     spare = Object.fromEntries(spares.map((t, i) => [t, loadedSpares[i]]));
   } catch (error) {
     $("mc-skeleton").hidden = true;
-    return say(`${name} didn't load: ${error.message.replace(/\.$/, "")}.`, true);
+    say(`${name} didn't load: ${error.message.replace(/\.$/, "")}.`, true);
+    if (error.retry !== false) tryAgain(status, () => form.requestSubmit()); // prices that did load are kept
+    return;
   } finally {
     button.disabled = false;
   }
@@ -214,7 +242,9 @@ async function run() {
   // Comparisons rerun the same random draws with one thing changed, so the gap comes from that change, not from chance.
   const plan = { startValue, annualWithdrawal, growth, annualContribution, contributeMonthly, fee, rule };
   // With a run kept for comparison, its seed is reused, so both runs draw the same random months.
-  const input = { ...plan, monthlyReturns: months.map((m) => m.value), years, runs, method, blockLength: BLOCK, prefix, seed: pinned ? pinned.seed : (Math.random() * 2 ** 32) >>> 0 };
+  // A share link's seed comes first, so whoever opens it gets the same random months as the sender.
+  const input = { ...plan, monthlyReturns: months.map((m) => m.value), years, runs, method, blockLength: BLOCK, prefix, seed: linkSeed ?? (pinned ? pinned.seed : (Math.random() * 2 ** 32) >>> 0) };
+  linkSeed = null;
   const guarded = rule === "guardrails";
   const extra = (crisis ? 1 : 0) + (fee > 0 ? 1 : 0) + (guarded ? 1 : 0);
   say(`Running ${runs.toLocaleString()} simulations${extra ? `, plus ${(runs * extra).toLocaleString()} more to compare` : ""}…`);
@@ -236,9 +266,11 @@ async function run() {
     $("mc-skeleton").hidden = true;
   }
   const { failureRate, bands, paths, ranOut } = result;
-  say("");
+  say(priceWarnings(prices)); // anything odd in the prices behind the run
   // The same seed gives the same random months only with the same number of runs, way of drawing and history.
-  current = { settings, failureRate, bands, paths, startValue, seed: input.seed, draws: `${runs} ${method} ${months[0].period} ${months.length}` };
+  current = { settings, failureRate, bands, paths, startValue, seed: input.seed, draws: `${runs} ${method} ${months[0].period} ${months.length}`, link, history: [months[0].period, months.at(-1).period] };
+  $("mc-examples").hidden = true; // the example card goes after the first run
+  $("mc-share-status").replaceChildren();
   ranWith = ranFrom;
   $("mc-summary").replaceChildren(...settings.filter((s) => s.tag).map((s) => element("li", s.tag)));
   $("mc-basis").textContent = basis;
@@ -291,7 +323,8 @@ async function run() {
   }[method];
   $("mc-method").textContent =
     `${how}${crisis ? ` Every run first replays the real fall of ${name} from ${longDate(crisis.start)} to ${longDate(crisis.end)} (${fitted < prefix.length ? `the first ${fitted} of its ${prefix.length} months` : `${fitted} ${fitted === 1 ? "month" : "months"}`}), then carries on as above.${crisisNotes.map((note) => ` In that fall, ${note}.`).join("")}` : ""} ` +
-    `Withdrawals are taken monthly.${guarded ? " They follow the guardrails rule (after Guyton and Klinger): after a year the investments lost money, the yearly rise is skipped; then, if the withdrawal has grown above 120% of the starting rate (withdrawal divided by balance), it is cut by 10%, and if it has fallen below 80% of that rate, it is raised by 10%." : ""}${annualContribution > 0 ? ` Contributions of ${moneyFit.format(annualContribution)} a year are added ${contributeMonthly ? "monthly" : "at the start of each year"} and stay the same every year.` : ""}${fee > 0 ? ` A yearly fee of ${feeRate.format(fee)} is taken a little each month, on top of fund costs, which the prices already include.` : ""} ${inflation.real ? "Balances, withdrawals and contributions are in today's dollars (inflation-adjusted)." : "Balances are in future dollars, not adjusted for inflation."} ` +
+    `Withdrawals are taken monthly.${guarded ? " They follow the guardrails rule (after Guyton and Klinger): after a year the investments lost money, the yearly rise is skipped; then, if the withdrawal has grown above 120% of the starting rate (withdrawal divided by balance), it is cut by 10%, and if it has fallen below 80% of that rate, it is raised by 10%." : ""}${annualContribution > 0 ? ` Contributions of ${moneyFit.format(annualContribution)} a year are added ${contributeMonthly ? "monthly" : "at the start of each year"} and stay the same every year.` : ""}${fee > 0 ? ` A yearly fee of ${feeRate.format(fee)} is taken a little each month, on top of fund costs, which the prices already include.` : ""} ${inflation.real ? `Balances, withdrawals and contributions are in today's ${word} (inflation-adjusted).` : `Balances are in future ${word}, not adjusted for inflation.`} ` +
+    `${currencyNotes(portfolio ? portfolio.holdings.map((h) => ({ label: h.ticker, tickers: [h.ticker] })) : [{ label: ticker, tickers: [ticker] }], inflation.real, inflation.country).map((note) => `${note} `).join("")}` +
     `The future can be worse than anything in this history, and a short history makes the result less reliable.`;
 
   drawCrises(crisisPoints, long[BENCHMARK].points, plan, notes);
@@ -333,7 +366,7 @@ function describe({ name, startValue, annualWithdrawal, growth, rule, annualCont
 
 // Everything in the form a run depends on, as one string, including the chosen saved portfolio's recipe.
 function formNow() {
-  const portfolio = loadPortfolios().find((p) => p.name === $("mc-portfolio").value);
+  const portfolio = chosen();
   return JSON.stringify([portfolio ?? $("mc-ticker").value.trim().toUpperCase(), ...[...form.querySelectorAll("input:not(#mc-ticker), select")].map((el) => el.value)]);
 }
 
@@ -706,6 +739,7 @@ function drawCrises(points, benchmark, plan, notes) {
   const last = points.at(-1).date;
   const heads = ["Crisis", "Lowest point", `${BENCHMARK}'s lowest point`, "Back to its starting level", `With your ${planWords(plan)}`];
   let marked = false; // whether any row uses a stand-in
+  crisisRows = [];
   const rows = CRISES.map((crisis) => {
     const test = crisisTest(points, crisis);
     const used = test ? notes.fund(crisis.start) : [];
@@ -714,6 +748,7 @@ function drawCrises(points, benchmark, plan, notes) {
     marked ||= used.length + spyUsed.length > 0;
     const title = Object.assign(element("th", crisis.name, ...[`${longDate(crisis.start)} to ${longDate(crisis.end)}`, ...used].map((line) => element("small", line))), { scope: "row" });
     if (!test) {
+      crisisRows.push([crisis.name, crisis.start, crisis.end, `No data: the history starts on ${points[0].date}`]);
       // Never silently skip: say why this crisis can't be measured.
       const why = element("td", `No data. This portfolio's history starts on ${longDate(points[0].date)}, after this crisis began.`);
       why.colSpan = heads.length - 1;
@@ -721,6 +756,7 @@ function drawCrises(points, benchmark, plan, notes) {
     }
     const yearsToRecover = test.recovered && ((Date.parse(test.recovered) - Date.parse(crisis.start)) / (365.25 * 864e5)).toFixed(1);
     const run = historicalRun(points, crisis.start, plan);
+    crisisRows.push([crisis.name, crisis.start, crisis.end, test.lowest, test.lowDate, spy?.lowest ?? null, spy?.lowDate ?? null, test.recovered ?? null, run.ranOutIn ?? null, run.ranOutIn ? 0 : run.final]);
     return element(
       "tr",
       title,
@@ -741,5 +777,64 @@ function drawCrises(points, benchmark, plan, notes) {
   $("mc-crises-note").textContent = said.join(" ");
   $("mc-crises-note").hidden = !said.length;
 }
+
+let crisisRows = []; // the crises table as figures, for the CSV download
+
+// Every box and menu of the form, by id without "mc-", plus the chosen portfolio's recipe: what a share link holds.
+function linkPairs(portfolio) {
+  return [
+    ...[...form.querySelectorAll("input[id], select[id]")].map((box) => [box.id.replace(/^mc-/, ""), box.value]),
+    ...(portfolio ? [["pf", recipe(portfolio)]] : []),
+  ];
+}
+
+// Copy link: the settings of the run on screen (even if the form has changed since) and its random seed.
+$("mc-link").addEventListener("click", () => copyLink("monte-carlo", [...current.link, ["seed", String(current.seed)]], $("mc-share-status")));
+
+// Download CSV: the yearly percentile balances, then the past-crises table, unrounded.
+$("mc-csv").addEventListener("click", () => {
+  const { bands, history } = current;
+  downloadCsv([
+    ["Year", "10th percentile", "25th percentile", "Median", "75th percentile", "90th percentile"],
+    ...bands.p50.map((_, year) => [year, ...["p10", "p25", "p50", "p75", "p90"].map((k) => bands[k][year])]),
+    [],
+    ["Crisis", "Start", "End", "Lowest point (fraction)", "Lowest on", `${BENCHMARK}'s lowest point (fraction)`, `${BENCHMARK}'s lowest on`, "Back to its starting level on", "Ran out in", "Left at the end"],
+    ...crisisRows,
+  ], `monte-carlo-${history[0]}-to-${history[1]}-${basisTag()}.csv`);
+});
+
+// Opening a share link (or the example card): fill in every setting it names, then run with its seed.
+function openLink() {
+  const link = linkFor("monte-carlo");
+  if (!link) return;
+  clearLink("monte-carlo");
+  const { found: [first], bad } = linkedPortfolios(link);
+  linked = first && !first.saved ? first.portfolio : null;
+  listPortfolios();
+  for (const box of form.querySelectorAll("input[id], select[id]")) {
+    const value = link.get(box.id.replace(/^mc-/, ""));
+    if (value === null || box.id === "mc-portfolio") continue;
+    if (box.tagName === "SELECT" && ![...box.options].some((o) => o.value === value)) continue; // run() checks the boxes
+    box.value = value;
+    if (box.tagName === "INPUT") box.dispatchEvent(new Event("input", { bubbles: true })); // their ticks and read-backs
+  }
+  $("mc-portfolio").value = first ? first.portfolio.name : "";
+  $("mc-ticker-field").hidden = Boolean(first);
+  showFormUnit();
+  const seed = link.get("seed");
+  linkSeed = /^\d{1,10}$/.test(seed ?? "") ? Number(seed) >>> 0 : null;
+  offerSave($("mc-linked"), linked ? [linked] : [], () => { linked = null; listPortfolios(); });
+  if (bad) $("mc-linked").append(element("span", "The portfolio in the link couldn't be read, so a single ticker is used instead."));
+  form.requestSubmit();
+}
+addEventListener("hashchange", openLink);
+
+// The example shown until the first run. Its lesson was checked against the result the link opens.
+exampleCards($("mc-examples"), "monte-carlo", [{
+  title: "The 4% rule",
+  lesson: "Take $40,000 a year, rising 3% a year, from $1,000,000 in US stocks (SPY) for 30 years. Most runs last, but some run out of money.",
+  link: [["portfolio", ""], ["ticker", "SPY"], ["start", "1000000"], ["withdrawal", "40000"], ["growth", "3"], ["rule", "fixed"], ["contribution", "0"], ["fee", "0"], ["years", "30"], ["runs", "10000"], ["draw", "month"], ["begin", ""], ["seed", "4"]],
+}]);
+openLink();
 
 addEventListener("inflation-changed", () => { if (!$("mc-results").hidden) form.requestSubmit(); });

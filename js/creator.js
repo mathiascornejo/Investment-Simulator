@@ -1,13 +1,16 @@
 // Portfolio creator tab: edit and save portfolios, and show a profile of the saved one.
-import { fetchPrices, PROXY_URL, inflation } from "./data.js";
+import { fetchPrices, PROXY_URL, inflation, basisTag } from "./data.js";
 import { summarize, correlation, windowOf, dailyReturns, totalReturn, cagr, volatility, maxDrawdown, withDeposits, xirr } from "./stats.js";
 import { REBALANCE_RULES, UNREADABLE_KEY, loadPortfolios, savePortfolios, portfolioSeries, portfolioIssue, readPortfolio, freeName, riskShares, effectiveHoldings, diversificationRatio } from "./portfolios.js";
 import { attachTickerSearch } from "./ticker-search.js";
 import { dropdown, liveField, flagField } from "./fields.js";
-import { pct, num, money, longDate, show, element } from "./format.js";
+import { pct, num, moneyIn, currencySymbol, longDate, show, element, download, downloadCsv } from "./format.js";
 import { COLORS, frame, addToCompare } from "./backtester.js";
-import { glyph, assetClass, countUp, toast, sparkline } from "./visuals.js";
+import { glyph, assetClass, countUp, toast, sparkline, tryAgain } from "./visuals.js";
 import { term } from "./glossary.js";
+import { currencyLabel, currencyNotes, currencyWord, sharedCurrency } from "./currency.js";
+import { priceWarnings } from "./quality.js";
+import { linkFor, clearLink, linkedPortfolios, copyLink, recipe } from "./links.js";
 
 const BENCHMARK = "SPY";
 const INK = "#1a1a1a"; // --ink in styles.css (ECharts can't read CSS variables)
@@ -50,6 +53,10 @@ let treemap; // ECharts instance, created the first time a profile is shown
 let nameIds = 0; // numbers each holding row's name label
 let profileLoads = 0; // counts profile loads, so only the latest one un-fades the profile
 let depositPoints = null; // the shown profile's portfolio series, for the deposits figures
+let profiled = null; // the portfolio whose profile is shown or loading (saved, or opened from a link)
+let profileData = null; // its figures, for the CSV download
+let unit = moneyIn("USD"); // amounts in the holdings' shared currency, or plain numbers when they differ
+let code = "USD";
 
 const showEmpty = () => ($("creator-empty").hidden = loadPortfolios().length > 0);
 addEventListener("portfolios-changed", showEmpty);
@@ -179,6 +186,7 @@ function fillPicker() {
 // Puts a portfolio into the form: a saved one (with its profile), an unsaved one (a model), or none (a blank example).
 function edit(portfolio, saved = Boolean(portfolio)) {
   editing = saved ? portfolio.name : "";
+  profiled = null; // a profile still loading for what was in the form is dropped
   fillPicker();
   $("start-from").value = "";
   $("portfolio-name").value = portfolio?.name ?? "";
@@ -302,10 +310,18 @@ async function save(button, copy = false) {
     Promise.all(portfolio.holdings.map((h) => h.name || nameOf(h.ticker))),
   ]);
   buttons.forEach((b) => (b.disabled = false));
-  const failed = portfolio.holdings.filter((_, i) => loaded[i].status === "rejected").map((h) => h.ticker);
+  // A ticker with no prices can't be saved; one that couldn't be checked (no connection, say) can be tried again.
+  const failed = portfolio.holdings.map((h, i) => [h.ticker, loaded[i].reason]).filter(([, reason]) => reason);
   if (failed.length) {
-    say(`Not saved. No price data was found for ${failed.join(", ")}.`, true);
-    const row = [...$("holdings").children].find((r) => r.querySelector("input").value.trim().toUpperCase() === failed[0]);
+    const missing = failed.filter(([, e]) => e.retry === false).map(([t]) => t);
+    const unchecked = failed.filter(([, e]) => e.retry !== false);
+    say([
+      "Not saved.",
+      missing.length && `No price data was found for ${missing.join(", ")}.`,
+      unchecked.length && `${unchecked.map(([t]) => t).join(", ")} couldn't be checked: ${unchecked[0][1].message}`,
+    ].filter(Boolean).join(" "), true);
+    if (unchecked.length) tryAgain(status, () => save(button, copy));
+    const row = [...$("holdings").children].find((r) => r.querySelector("input").value.trim().toUpperCase() === failed[0][0]);
     return row && flagField(row.querySelector("input"));
   }
   portfolio.holdings.forEach((h, i) => { if (found[i]) h.name = found[i]; });
@@ -364,12 +380,6 @@ $("backup-portfolios").addEventListener("click", () => {
   download(JSON.stringify(saved, null, 2), file, "application/json");
   say(`Downloaded ${saved.length} portfolio${saved.length === 1 ? "" : "s"} as ${file}.`, false, backupStatus);
 });
-
-function download(text, file, type) {
-  const url = URL.createObjectURL(new Blob([text], { type }));
-  Object.assign(element("a"), { href: url, download: file }).click();
-  setTimeout(() => URL.revokeObjectURL(url)); // after the download has started
-}
 
 // Saved portfolios that couldn't be read are kept aside (see loadPortfolios). Say so and offer them as a file;
 // the kept copy can be removed only after it has been downloaded.
@@ -438,6 +448,7 @@ $("restore-file").addEventListener("change", async () => {
 // The profile of a saved portfolio
 // A profile already on screen fades while the new one loads.
 async function showProfile(portfolio) {
+  profiled = portfolio;
   const ticket = ++profileLoads;
   $("profile").setAttribute("aria-busy", "true");
   try {
@@ -448,16 +459,20 @@ async function showProfile(portfolio) {
 }
 
 async function drawProfile(portfolio) {
+  const asked = portfolio;
   const tickers = [...new Set([...portfolio.holdings.map((h) => h.ticker), BENCHMARK])];
   let loaded, found;
   try {
     // Names are looked up for holdings saved before names were kept (nameOf never fails).
     [loaded, found] = await Promise.all([Promise.all(tickers.map(fetchPrices)), Promise.all(portfolio.holdings.map((h) => h.name || nameOf(h.ticker)))]);
   } catch (error) {
-    if (editing === portfolio.name) $("profile").hidden = true; // don't leave an older profile looking current
-    return say(`The profile couldn't be loaded: ${error.message}`, true);
+    if (profiled !== asked) return;
+    $("profile").hidden = true; // don't leave an older profile looking current
+    say(`The profile couldn't be loaded: ${error.message}`, true);
+    if (error.retry !== false) tryAgain(status, () => showProfile(asked));
+    return;
   }
-  if (editing !== portfolio.name) return; // another portfolio was opened while this one loaded
+  if (profiled !== asked) return; // another portfolio was opened while this one loaded
   portfolio = { ...portfolio, holdings: portfolio.holdings.map((h, i) => (found[i] ? { ...h, name: found[i] } : h)) };
   const prices = Object.fromEntries(tickers.map((t, i) => [t, loaded[i]]));
   const run = portfolioSeries(portfolio, prices);
@@ -478,6 +493,8 @@ async function drawProfile(portfolio) {
   const weights = portfolio.holdings.map((h) => h.weight);
   const shares = riskShares(weights, returns);
   const sorted = colored.map((h, i) => ({ ...h, risk: shares[i] })).sort((a, b) => b.weight - a.weight);
+  code = sharedCurrency(portfolio.holdings.map((h) => h.ticker));
+  unit = moneyIn(code);
 
   drawHeader(portfolio, points);
   drawAllocation(sorted);
@@ -490,15 +507,24 @@ async function drawProfile(portfolio) {
     (portfolio.holdings.length > 1
       ? `Measured over the period every holding has data for. ${newest.ticker} has the shortest history.`
       : `Measured over ${newest.ticker}'s whole price history.`) +
-    (benchmarkCovers ? "" : ` ${BENCHMARK} has no prices before ${longDate(prices[BENCHMARK][0].date)}, so its figures aren't shown.`);
+    (benchmarkCovers ? "" : ` ${BENCHMARK} has no prices before ${longDate(prices[BENCHMARK][0].date)}, so its figures aren't shown.`) +
+    currencyNotes(portfolio.holdings.map((h) => ({ label: h.ticker, tickers: [h.ticker] })), inflation.real, inflation.country).map((note) => ` ${note}`).join("");
   drawFacts(summarize(points, prices[BENCHMARK]), benchmarkCovers ? summarize(benchmark, prices[BENCHMARK]) : null);
   $("profile-trading").textContent = tradingNote(portfolio, run);
-  drawCorrelation(colored, aligned, weights, returns);
+  const corr = drawCorrelation(colored, aligned, weights, returns);
   drawRules(portfolio, prices);
   depositPoints = points;
+  for (const node of document.querySelectorAll("#profile [data-unit]")) node.textContent = currencySymbol(unit) && `(${currencySymbol(unit)})`;
+  readBacks.forEach((readBack) => readBack()); // in the holdings' currency
   drawDeposits();
   $("profile").hidden = false;
+  $("cr-share-status").replaceChildren();
   drawTreemap(sorted);
+  profileData = { portfolio, sorted, colored, corr, from: points[0].date, to: points.at(-1).date };
+  // Anything odd in the prices, after whatever the status line says (it is replaced on the next redraw).
+  status.querySelector(".data-warn")?.remove();
+  const warnings = priceWarnings(prices);
+  if (warnings) status.append(Object.assign(element("span", ` ${warnings}`), { className: "data-warn" }));
 }
 
 const swatch = (color) => {
@@ -551,7 +577,8 @@ function drawAllocation(holdings) {
   const head = element("tr", ...["Holding", "Share of money", term("Share of risk")].map((label) => Object.assign(element("th", label), { scope: "col" })));
   const rows = holdings.map((h) => {
     const name = h.name ? [Object.assign(element("small", h.name), { title: h.name })] : [];
-    const holding = Object.assign(element("th", swatch(h.color), glyph(assetClass(h.ticker)), h.ticker, ...name), { scope: "row" });
+    const cur = code === "USD" ? [] : [Object.assign(element("small", currencyLabel([h.ticker])), { className: "cur" })]; // holdings not all in dollars
+    const holding = Object.assign(element("th", swatch(h.color), glyph(assetClass(h.ticker)), h.ticker, ...cur, ...name), { scope: "row" });
     return element("tr", holding, share(h.weight / 100, h.color), share(h.risk, h.color));
   });
   $("allocation").replaceChildren(element("thead", head), element("tbody", ...rows));
@@ -615,21 +642,22 @@ function drawDeposits() {
   facts.replaceChildren(
     row(
       "Money",
-      fact("Ending balance", d.final, money),
-      fact("Paid in", d.paidIn, money),
-      ...(d.takenOut ? [fact("Taken out", d.takenOut, money)] : []),
-      fact("Gain", d.final + d.takenOut - d.paidIn, money, null, true),
+      fact("Ending balance", d.final, unit.money),
+      fact("Paid in", d.paidIn, unit.money),
+      ...(d.takenOut ? [fact("Taken out", d.takenOut, unit.money)] : []),
+      fact("Gain", d.final + d.takenOut - d.paidIn, unit.money, null, true),
     ),
     row("Return per year", fact("Time-weighted return", fund, pct, "The portfolio's", true), fact("Money-weighted return", yours, pct, "Yours", true)),
   );
   const ranOut = d.final === 0 && each < 0 ? " The withdrawals used up all the money before the end." : "";
-  const real = inflation.real ? " Amounts are in today's dollars." : "";
+  const real = inflation.real ? ` Amounts are in today's ${currencyWord(code)}.` : "";
+  const own = code === "mixed" ? " The holdings are in different currencies, so the amounts are plain numbers with no currency." : "";
   note.textContent = (
     fund === null ? "There is less than a year of history, so neither return is given per year."
     : yours === null ? "No yearly rate fits these amounts, so your own return can't be worked out."
     : each === 0 ? "With nothing paid in or taken out after the start, your return and the portfolio's are the same."
     : `Your money earned ${pct.format(yours)} a year, against the portfolio's ${pct.format(fund)}. The portfolio's return ignores when money went in or came out. Yours counts each amount only while it was invested, so the years when more of your money was in count for more.`
-  ) + ranOut + real;
+  ) + ranOut + real + own;
 }
 
 // The same holdings and dates under every rebalancing rule, with the saved rule marked. One holding never trades.
@@ -716,10 +744,11 @@ function drawTreemap(holdings) {
 }
 
 // Correlation of each pair of holdings' daily returns over the measured period, then how much the mix diversifies.
+// Returns the grid (lower half filled), or null for one holding.
 function drawCorrelation(holdings, aligned, weights, returns) {
   const n = holdings.length;
   $("correlation-block").hidden = n < 2;
-  if (n < 2) return;
+  if (n < 2) return null;
   const corr = aligned.map((a, i) => aligned.map((b, j) => (j < i ? correlation(a, b) : NaN)));
   const head = element("tr", element("td"), ...holdings.map((h) => Object.assign(element("th", swatch(h.color), h.ticker), { scope: "col", title: h.name ?? "" })));
   const rows = holdings.map((h, i) =>
@@ -756,6 +785,7 @@ function drawCorrelation(holdings, aligned, weights, returns) {
       ? `${twins[0][0]} and ${twins[0][1]} move almost identically (correlation ${num.format(twins[0][2])}), so together they work like one holding.`
       : `These pairs move almost identically, so each pair works like one holding: ${and(twins.map(pair))}.`;
   $("duplicates").classList.toggle("flag", twins.length > 0);
+  return corr;
 }
 
 // Start
@@ -776,10 +806,45 @@ dropdown($("start-from"), {
 });
 liveField($("band"), { compact: true });
 liveField($("trade-cost"), { compact: true });
-liveField($("dep-start"), { format: (v) => `${money.format(v)} at the start` });
-liveField($("dep-monthly"), { format: (v) => (v > 0 ? `${money.format(v)} paid in each month` : v < 0 ? `${money.format(-v)} taken out each month` : "Nothing paid in or taken out") });
+const readBacks = [
+  liveField($("dep-start"), { format: (v) => `${unit.money.format(v)} at the start` }),
+  liveField($("dep-monthly"), { format: (v) => (v > 0 ? `${unit.money.format(v)} paid in each month` : v < 0 ? `${unit.money.format(-v)} taken out each month` : "Nothing paid in or taken out") }),
+];
 for (const id of ["dep-start", "dep-monthly"]) $(id).addEventListener("input", drawDeposits);
 edit();
 showUnreadable();
 
-addEventListener("inflation-changed", () => { const p = loadPortfolios().find((x) => x.name === editing); if (p) showProfile(p); });
+// Download CSV: the weights with each holding's share of risk, then the correlation grid, both unrounded.
+$("cr-csv").addEventListener("click", () => {
+  const { portfolio, sorted, colored, corr, from, to } = profileData;
+  const at = (i, j) => (i === j ? 1 : i > j ? corr[i][j] : corr[j][i]);
+  const slug = portfolio.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "portfolio";
+  downloadCsv([
+    ["Portfolio", portfolio.name],
+    ["Ticker", "Name", "Weight (fraction)", "Share of risk (fraction)"],
+    ...sorted.map((h) => [h.ticker, h.name ?? "", h.weight / 100, h.risk]),
+    ...(corr ? [[], ["Correlation of daily returns", ...colored.map((h) => h.ticker)], ...colored.map((h, i) => [h.ticker, ...colored.map((_, j) => at(i, j))])] : []),
+  ], `portfolio-${slug}-${from}-to-${to}-${basisTag()}.csv`);
+});
+
+// Copy link: the portfolio's full recipe, so whoever opens it sees this profile and can save it.
+$("cr-link").addEventListener("click", () => copyLink("creator", [["pf", recipe(profiled)]], $("cr-share-status")));
+
+// Opening a share link: the portfolio goes into the form with its profile, unsaved until Save is pressed.
+function openLink() {
+  const link = linkFor("creator");
+  if (!link) return;
+  clearLink("creator");
+  const { found: [first], bad } = linkedPortfolios(link);
+  if (!first) return say(bad ? "The portfolio in the link couldn't be read, so nothing was opened." : "", bad > 0);
+  guard(() => {
+    if (first.saved) return edit(first.portfolio);
+    edit(first.portfolio, false);
+    showProfile(first.portfolio);
+    say(`Opened ${first.portfolio.name} from a link. It isn't saved in this browser: press Save portfolio to keep it and use it in the other tabs.`);
+  });
+}
+addEventListener("hashchange", openLink);
+openLink();
+
+addEventListener("inflation-changed", () => { if (profiled) showProfile(profiled); });

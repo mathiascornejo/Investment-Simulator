@@ -1,7 +1,7 @@
 // Run with: node --test js/data.test.js
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { lastClose, fresh, cashSeries } from "./data.js";
+import { lastClose, fresh, cashSeries, getJson } from "./data.js";
 
 const at = (iso) => Date.parse(iso);
 
@@ -26,4 +26,48 @@ test("fresh: a saved copy lasts until the next close, or 6 hours after saving", 
 test("cashSeries: weekdays only, from the given start", () => {
   const days = cashSeries(new Date("2026-11-24"), "2026-11-20").map((p) => p.date);
   assert.deepEqual(days, ["2026-11-20", "2026-11-23", "2026-11-24"]);
+});
+
+test("getJson: tries once more after a server error or a lost connection, never after a 404", async () => {
+  const real = globalThis.fetch;
+  const replies = (...list) => {
+    let calls = 0;
+    globalThis.fetch = async () => {
+      const r = list[calls++];
+      if (r === "offline") throw new TypeError("Failed to fetch");
+      return new Response(JSON.stringify(r.body ?? null), { status: r.status });
+    };
+    return () => calls;
+  };
+  try {
+    let calls = replies({ status: 502 }, { status: 200, body: [1] });
+    assert.deepEqual(await getJson("x", { wait: 0 }), [1]);
+    assert.equal(calls(), 2);
+
+    calls = replies({ status: 404 }, { status: 200, body: [1] });
+    await assert.rejects(getJson("x", { wait: 0 }), (e) => e.retry === false && /Check the spelling/.test(e.message));
+    assert.equal(calls(), 1);
+
+    calls = replies("offline", "offline");
+    await assert.rejects(getJson("x", { wait: 0 }), (e) => e.retry === true && /Couldn't reach the price service/.test(e.message));
+    assert.equal(calls(), 2);
+
+    calls = replies({ status: 429 }, { status: 200, body: [1] }); // the hourly limit: no point asking again at once
+    await assert.rejects(getJson("x", { wait: 0 }), (e) => e.retry === true && /Prices already loaded still work/.test(e.message));
+    assert.equal(calls(), 1);
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
+test("getJson: a request that takes too long is stopped and counts as a timeout", async () => {
+  const real = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = (url, { signal }) => { calls++; return new Promise((_, reject) => signal.addEventListener("abort", () => reject(signal.reason))); };
+  try {
+    await assert.rejects(getJson("x", { wait: 0, limit: 20 }), (e) => e.retry === true && /took more than/.test(e.message));
+    assert.equal(calls, 2);
+  } finally {
+    globalThis.fetch = real;
+  }
 });
