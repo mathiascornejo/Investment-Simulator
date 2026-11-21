@@ -608,6 +608,9 @@ button[type="submit"]:disabled { cursor: progress; }
 .chart { height: 18rem; margin-top: 0.75rem; }
 .chart-tall { height: 23rem; }
 .chart-short { height: 14rem; }
+/* Backtester: one plain sentence over each chart saying what it shows, in ink like the Monte Carlo leads. */
+.takeaway { margin: 0.75rem 0 0; max-width: 44rem; }
+:is(#crisis-note, #rolling-note):empty { margin: 0; } /* grid items keep their margins, so an empty note would leave a gap */
 /* "Scroll to zoom": shown once, on the first mouse hover over the growth or drawdown chart, then fades (js/backtester.js). */
 #growth-chart, #drawdown-chart { position: relative; }
 .zoom-tip { position: absolute; z-index: 1; top: 0.5rem; left: 50%; translate: -50% 0; padding: 0.25rem 0.625rem; border-radius: 999px; background: var(--ink); color: #fff; font-size: 0.75rem; pointer-events: none; animation: zoom-tip 4s both; }
@@ -647,16 +650,20 @@ tbody th {
 
 tbody tr:last-child > * { border-bottom: 0; }
 
-/* Backtester statistics: rows in labelled groups, each under a small-caps subhead in the notch-label style. */
-#stats tr.group > * { padding: 1.25rem 0 0.25rem; border-bottom: 0; }
-#stats tbody:first-of-type tr.group > * { padding-top: 0.75rem; }
-#stats tr.group th { font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+/* Backtester statistics: rows in labelled groups, each under a small-caps subhead in the notch-label style.
+   The other Backtester tables (.bt-table: deepest falls, holding periods, rolling ranges) group by line the same way. */
+:is(#stats, .bt-table) tr.group > * { padding: 1.25rem 0 0.25rem; border-bottom: 0; }
+:is(#stats, .bt-table) tbody:first-of-type tr.group > * { padding-top: 0.75rem; }
+:is(#stats, .bt-table) tr.group th { font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.bt-table thead th { font-size: 0.875rem; font-weight: 400; color: var(--muted); }
+.bt-table thead th:first-child { padding-left: 0; text-align: left; }
+.bt-table tbody th { color: var(--ink); }
 /* The best figure in a row (two or more lines): semibold, with a small ink dot before it. */
 #stats td.best { font-weight: 600; }
 #stats td:is(.best, .gap) { position: relative; } /* keeps their screen-reader text inside the sideways-scrolling box */
 #stats td.best::before { content: ""; display: inline-block; width: 0.375rem; height: 0.375rem; margin-right: 0.375rem; border-radius: 50%; background: var(--ink); vertical-align: 0.125em; }
 /* A row no line can fill: one muted note across the columns and a lighter label (#73736c is still 4.5:1 on paper). */
-#stats td.why { text-align: left; font-style: italic; color: var(--muted); }
+:is(#stats, .bt-table) td.why { text-align: left; font-style: italic; color: var(--muted); }
 #stats tr.na th { color: #73736c; }
 /* About the data, under the table. */
 .data-head { margin: 1.5rem 0 0.375rem; font-size: 0.875rem; font-weight: 600; }

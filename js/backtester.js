@@ -2,7 +2,7 @@
 // All maths lives in stats.js; this file is fetching, state and drawing.
 import { fetchPrices } from "./data.js";
 import { attachTickerSearch } from "./ticker-search.js";
-import { windowOf, summarize, drawdowns, periodReturns, niceAxis, gapRange } from "./stats.js";
+import { windowOf, summarize, drawdowns, periodReturns, niceAxis, gapRange, drawdownEpisodes, rollingReturns, holdingPeriods, spread, correlation } from "./stats.js";
 import { loadPortfolios, portfolioSeries } from "./portfolios.js";
 import { CRISES } from "./montecarlo.js";
 import { TBILLS } from "./tbills.js";
@@ -84,6 +84,8 @@ const state = {
   step: "day", // time between chart points: day | week | month (statistics always use every day)
   keyLength: 4, // 4 = returns by year, 7 = by month
   heat: 0, // which line the monthly heatmap shows
+  crisis: null, // a past crash from CRISES while its button is on; any other period change turns it off
+  rollYears: 1, // years in each stretch of the rolling returns chart
   windows: [],
 };
 let charts; // created on first draw, once the containers are visible and have a size
@@ -140,6 +142,7 @@ const monthsBefore = (date, months) => {
 // Select a preset (months back from the latest date, or "max"), clamped to the data we have.
 function applyPreset(months) {
   state.preset = months;
+  state.crisis = null;
   state.end = state.max;
   const wanted = months === "max" ? state.min : monthsBefore(state.max, months);
   state.start = wanted < state.min ? state.min : wanted;
@@ -217,6 +220,7 @@ form.addEventListener("submit", async (event) => {
   }
   applyPreset("12"); // 1 year is the default period
   drawDataNotes(lines, latestStarter);
+  drawHolding();
 
   say(problems.join(" "), problems.length > 0);
   $("results").hidden = false;
@@ -241,6 +245,7 @@ for (const id of ["from", "to"]) {
     }
     say("");
     state.preset = "";
+    state.crisis = null;
     state.start = from < state.min ? state.min : from;
     state.end = to > state.max ? state.max : to;
     draw();
@@ -269,12 +274,14 @@ $("step").addEventListener("click", (event) => {
 // Both just move state.start / state.end and redraw, so the dates, table and every chart follow.
 const DAY = 86400000;
 const iso = (ms) => new Date(ms).toISOString().slice(0, 10);
+// Does a series have prices for the whole of start..end? A week's slack for holidays and other markets' closed days.
+const covers = (points, start, end) => Date.parse(points[0].date) - Date.parse(start) <= 7 * DAY && Date.parse(end) - Date.parse(points.at(-1).date) <= 7 * DAY;
 function setSpan(start, end) {
   const span = Math.min(end - start, Date.parse(state.max) - Date.parse(state.min));
   const lo = Math.min(Math.max(start, Date.parse(state.min)), Date.parse(state.max) - span);
-  const [from, to] = [state.start, state.end];
-  Object.assign(state, { preset: "", start: iso(lo), end: iso(lo + span) });
-  if (state.series.some((s) => windowOf(s.points, state.start, state.end).points.length < 3)) Object.assign(state, { start: from, end: to }); // too few points: keep the old range
+  const { preset, crisis, start: from, end: to } = state;
+  Object.assign(state, { preset: "", crisis: null, start: iso(lo), end: iso(lo + span) });
+  if (state.series.some((s) => windowOf(s.points, state.start, state.end).points.length < 3)) Object.assign(state, { preset, crisis, start: from, end: to }); // too few points: keep the old range
   else requestAnimationFrame(draw);
 }
 // While the wheel is scrolling the page, a chart passing under the pointer lets it carry on scrolling;
@@ -325,19 +332,53 @@ $("period").addEventListener("click", (event) => {
   draw();
 });
 
+// Past crashes: From and To jump to the S&P 500's peak-to-trough dates (CRISES). A line without prices for the
+// whole crash is left out of that view and named in the note above the chart, so nothing is cut short quietly.
+const lower = (text) => text[0].toLowerCase() + text.slice(1);
+const crashButtons = [...$("crashes").querySelectorAll("button")];
+for (const b of crashButtons) {
+  const c = CRISES.find((x) => x.name === b.dataset.crisis);
+  b.title = `${c.name}: ${longDate(c.start)} to ${longDate(c.end)}`;
+}
+$("crashes").addEventListener("click", (event) => {
+  const crisis = CRISES.find((c) => c.name === event.target.dataset.crisis);
+  if (!crisis) return;
+  if (!state.series.some((s) => covers(s.points, crisis.start, crisis.end))) {
+    $("crisis-note").textContent = `No line here has prices for the whole ${lower(crisis.name)}, from ${longDate(crisis.start)} to ${longDate(crisis.end)}, so the period stays as it was.`;
+    return;
+  }
+  Object.assign(state, { crisis, preset: "", start: crisis.start, end: crisis.end });
+  draw();
+});
+
+$("rolling-years").addEventListener("click", (event) => {
+  const years = Number(event.target.dataset.years);
+  if (!years) return;
+  state.rollYears = years;
+  if (charts) drawRolling(state.windows);
+});
+
 // Drawing
 function draw() {
-  const windows = state.series.map((s) => ({ ...s, ...windowOf(s.points, state.start, state.end) }));
+  const c = state.crisis;
+  const shown = c ? state.series.filter((s) => covers(s.points, c.start, c.end)) : state.series;
+  // history: the line's whole series, for the charts that look back before From.
+  const windows = shown.map((s) => ({ ...s, history: s.points, ...windowOf(s.points, state.start, state.end) }));
   if (windows.some((w) => w.points.length < 3)) {
     say("That period is too short to measure. Pick a longer one.", true);
     return;
   }
+  $("crisis-note").textContent = c ? [
+    `${c.name}: the S&P 500's fall from its high on ${longDate(c.start)} to its low on ${longDate(c.end)}.`,
+    ...state.series.filter((s) => !shown.includes(s)).map((s) => `${s.label} isn't shown: it has no prices ${s.points[0].date > c.start ? `before ${longDate(s.points[0].date)}` : `after ${longDate(s.points.at(-1).date)}`}.`),
+  ].join(" ") : "";
 
   for (const b of document.querySelectorAll(".presets button")) b.setAttribute("aria-pressed", b.dataset.months === state.preset);
   for (const b of $("step").children) b.setAttribute("aria-pressed", b.dataset.step === state.step);
   for (const b of $("period").children) b.setAttribute("aria-pressed", Number(b.dataset.keyLength) === state.keyLength);
+  for (const b of crashButtons) b.setAttribute("aria-pressed", b.dataset.crisis === c?.name);
   for (const [id, value] of [["from", state.start], ["to", state.end]]) {
-    Object.assign($(id), { min: state.min, max: state.max, value });
+    Object.assign($(id), { min: state.start < state.min ? state.start : state.min, max: state.max, value }); // a crash can start before the common dates
   }
 
   state.windows = windows;
@@ -347,13 +388,15 @@ function draw() {
   drawSummary(windows, stats);
   drawGapNote(windows);
   drawHeatmap(windows);
+  drawFalls(windows);
+  drawCorrelation(windows);
 
   if (!window.echarts) {
     say("The chart library didn't load, so only the table is shown. Check your connection and reload.", true);
     return;
   }
   if (!charts) {
-    charts = Object.fromEntries(["growth", "returns", "drawdown", "scatter"].map((n) => [n, echarts.init($(`${n}-chart`))]));
+    charts = Object.fromEntries(["growth", "returns", "rolling", "drawdown", "scatter"].map((n) => [n, echarts.init($(`${n}-chart`))]));
     echarts.connect([charts.growth, charts.drawdown]); // hovering one moves the crosshair on the other
     const resize = () => Object.values(charts).forEach((c) => c.resize());
     addEventListener("resize", resize);
@@ -362,6 +405,7 @@ function draw() {
   const grid = timeGrid(windows);
   drawGrowth(windows, grid);
   drawReturns(windows);
+  drawRolling(windows);
   drawDrawdowns(windows, grid);
   drawScatter(windows, stats);
 }
@@ -372,6 +416,22 @@ function swatch(color) {
   node.style.background = color;
   return node;
 }
+
+// A table group's heading row: the line's colour and name across every column.
+const groupRow = (w, columns) => Object.assign(element("tr", Object.assign(element("th", swatch(w.color), w.label), { scope: "rowgroup", colSpan: columns })), { className: "group" });
+const headRow = (...labels) => element("tr", ...labels.map((text) => Object.assign(element("th", text), { scope: "col" })));
+const names = new Intl.ListFormat(undefined, { type: "conjunction" }); // "SPY, QQQ and GLD"
+const oneDecimal = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 });
+// Calendar time between two dates: "12 days", "5 months", "2.3 years".
+function duration(from, to) {
+  const days = Math.round((Date.parse(to) - Date.parse(from)) / DAY);
+  const months = Math.round(days / 30.44);
+  if (days < 31) return days === 1 ? "1 day" : `${days} days`;
+  if (months < 24) return months === 1 ? "1 month" : `${months} months`;
+  return `${oneDecimal.format(days / 365.25)} years`;
+}
+// A share in whole percent that never rounds a few cases away: "under 1%" rather than "0%".
+const shareOf = (x) => (x > 0 && x < 0.005 ? "under 1%" : x < 1 && x > 0.995 ? "over 99%" : pctAxis.format(x));
 
 function drawTable(windows, stats) {
   const pair = windows.length === 2;
@@ -457,6 +517,23 @@ function drawDataNotes(lines, latestStarter) {
     notes.push(element("li", "Not everything here is in the same currency. Each return is in its own currency, and exchange-rate moves are left out."));
   }
   $("data-notes").replaceChildren(...notes);
+}
+
+// Holding periods: bought at each month-end of a line's whole history and held 1 to 20 years (holdingPeriods in
+// stats.js). Built once per load, since it doesn't depend on the period on show. A dash: the history is too short.
+const HOLDS = [1, 3, 5, 10, 15, 20];
+function drawHolding() {
+  const groups = state.series.map((s) => element("tbody", groupRow(s, 6), ...HOLDS.map((years) => {
+    const h = holdingPeriods(s.points, years);
+    return element(
+      "tr",
+      Object.assign(element("th", years === 1 ? "1 year" : `${years} years`), { scope: "row" }),
+      element("td", h ? h.count.toLocaleString() : "–"),
+      element("td", h ? shareOf(h.lossShare) : "–"),
+      ...["low", "median", "high"].map((key) => element("td", h ? pct.format(h[key]) : "–")),
+    );
+  })));
+  $("holding").replaceChildren(element("thead", headRow("Held for", "Start months", "Lost money", "Worst", "Median", "Best")), ...groups);
 }
 
 // Options shared by all three charts. Tooltip text comes from tickers (validated A-Z, 0-9, dash)
@@ -575,7 +652,24 @@ function crisisBands(chart, grid, data) {
   };
 }
 
+// The sentence over the growth chart: where the lines ended. Like every takeaway it states past facts only,
+// from fixed templates, and names go in as text, never as HTML.
+function growthLead(windows) {
+  const finals = windows.map((w) => (START_VALUE * w.points.at(-1).adjClose) / w.points[0].adjClose);
+  const fit = (v) => moneyFit.format(v);
+  if (windows.length === 1) {
+    const change = finals[0] / START_VALUE - 1;
+    const how = pct.format(Math.abs(change)) === pct.format(0) ? "unchanged" : `${change < 0 ? "down" : "up"} ${pct.format(Math.abs(change))}`;
+    return `${windows[0].label} ended at ${fit(finals[0])}, ${how}.`;
+  }
+  const [top, bottom] = [Math.max(...finals), Math.min(...finals)];
+  if (fit(top) === fit(bottom)) return `${windows.length === 2 ? "Both" : "All of them"} ended level, at ${fit(top)}.`;
+  const at = (v) => names.format(windows.filter((_, i) => fit(finals[i]) === fit(v)).map((w) => w.label));
+  return `${at(top)} ended highest, at ${fit(top)}, and ${at(bottom)} lowest, at ${fit(bottom)}.`;
+}
+
 function drawGrowth(windows, grid) {
+  $("growth-lead").textContent = growthLead(windows);
   const base = frame(longDate, money);
   const data = windows.map((w) => resample(w.points.map((p) => [p.date, (START_VALUE * p.adjClose) / w.points[0].adjClose])));
   const axisLabel = { ...base.yAxis.axisLabel, formatter: (v) => moneyCompact.format(v) };
@@ -617,6 +711,12 @@ function drawDrawdowns(windows, grid) {
   const dds = windows.map((w) => drawdowns(w.points));
   const data = dds.map((dd) => resample(dd.map((d) => [d.date, d.value])));
   const deepest = dds.map((dd) => dd.reduce((a, b) => (b.value < a.value ? b : a)));
+  const worst = deepest.reduce((a, d, i) => (d.value < deepest[a].value ? i : a), 0);
+  const { date: worstDate, value: worstValue } = deepest[worst];
+  const when = `${pctShort.format(worstValue)}, in ${monthLabel(worstDate.slice(0, 7))}`;
+  $("drawdown-lead").textContent = worstValue >= 0
+    ? `${windows.length > 1 ? "None of them" : `${windows[0].label} never`} fell below a previous high in this period.`
+    : windows.length > 1 ? `${windows[worst].label} fell furthest: ${when}.` : `${windows[0].label}'s deepest fall was ${when}.`;
   const first = Math.min(...data.map((d) => d[0][0]));
   const last = Math.max(...data.map((d) => d.at(-1)[0]));
   // Each line's deepest point, pinned with how deep and when. Near either edge the label runs inward,
@@ -663,6 +763,31 @@ function drawDrawdowns(windows, grid) {
   );
 }
 
+// Under the drawdown chart: each line's five deepest falls in the period (drawdownEpisodes, so the same falls the
+// chart shows), deepest first, then the share of days each spent below a previous high.
+function drawFalls(windows) {
+  const groups = windows.map((w) => {
+    const end = w.points.at(-1).date;
+    const rows = drawdownEpisodes(w.points).sort((a, b) => a.depth - b.depth).slice(0, 5).map((f) => element(
+      "tr",
+      Object.assign(element("th", pct.format(f.depth)), { scope: "row" }),
+      element("td", longDate(f.peak)),
+      element("td", longDate(f.trough)),
+      element("td", duration(f.peak, f.trough)),
+      element("td", f.recovery ? longDate(f.recovery) : "Not yet"),
+      element("td", f.recovery ? duration(f.peak, f.recovery) : `${duration(f.peak, end)} so far`),
+    ));
+    if (!rows.length) rows.push(element("tr", Object.assign(element("td", "No falls: it never dropped below a previous high in this period."), { colSpan: 6, className: "why" })));
+    return element("tbody", groupRow(w, 6), ...rows);
+  });
+  $("falls").replaceChildren(element("thead", headRow("Fall", "High on", "Low on", "High to low", "Back at the high", "Time below the high")), ...groups);
+  const below = windows.map((w) => `${w.label} ${shareOf(drawdowns(w.points).filter((d) => d.value < 0).length / w.points.length)}`);
+  $("underwater").textContent = `Share of trading days spent below a previous high: ${names.format(below)}.`;
+}
+
+// A firm ink line at 0% splits gains from losses; the other gridlines stay faint.
+const zeroLine = () => ({ silent: true, symbol: "none", label: { show: false }, lineStyle: { color: INK, width: 1, type: "solid" }, data: [{ yAxis: 0 }] });
+
 function drawReturns(windows) {
   const byPeriod = windows.map((w) => new Map(periodReturns(w.points, state.keyLength, w.nextDate).map((p) => [p.period, p])));
   const periods = [...new Set(byPeriod.flatMap((m) => [...m.keys()]))].sort();
@@ -670,6 +795,16 @@ function drawReturns(windows) {
   const label = (key) => (state.keyLength === 4 ? key : monthLabel(key));
   const values = byPeriod.flatMap((m) => [...m.values()].map((p) => p.value));
   const [lo, hi] = [Math.min(0, ...values), Math.max(0, ...values)];
+
+  // Takeaway: the best and worst full period across the lines.
+  const unit = state.keyLength === 4 ? "year" : "month";
+  const full = byPeriod.flatMap((m, i) => [...m.values()].filter((p) => !p.partial).map((p) => ({ ...p, w: windows[i] })));
+  const said = (p) => `${windows.length > 1 ? `${p.w.label}, ` : ""}${pctShort.format(p.value)} in ${label(p.period)}`;
+  const best = full.reduce((a, b) => (b.value > a.value ? b : a), full[0]);
+  const worst = full.reduce((a, b) => (b.value < a.value ? b : a), full[0]);
+  $("returns-lead").textContent = !full.length
+    ? `This period holds no full calendar ${unit}, so every bar covers part of one and is faded.`
+    : full.length === 1 ? `The only full ${unit}: ${said(best)}.` : `Best full ${unit}: ${said(best)}. Worst: ${said(worst)}.`;
 
   const base = frame((key) => label(key) + (isPartial(key) ? " (partial)" : ""), pct, "shadow");
   charts.returns.setOption(
@@ -686,8 +821,7 @@ function drawReturns(windows) {
         itemStyle: { color: w.color },
         emphasis: { disabled: true },
         markPoint: badges(byPeriod[i], windows.length, i),
-        // A firm ink line at 0% splits gains from losses; the other gridlines stay faint.
-        markLine: i === 0 ? { silent: true, symbol: "none", label: { show: false }, lineStyle: { color: INK, width: 1, type: "solid" }, data: [{ yAxis: 0 }] } : undefined,
+        markLine: i === 0 ? zeroLine() : undefined,
         data: periods.map((key) => {
           const p = byPeriod[i].get(key);
           if (!p) return null;
@@ -716,6 +850,60 @@ function badges(periods, lineCount, index) {
       badge(worst, "Worst", { position: "bottom", offset: [index ? 34 : -34, 0], /* sideways so two lines' badges in one period never stack */ color: "#b3372b", backgroundColor: "#fff", borderColor: "#b3372b", borderWidth: 1 }),
     ],
   };
+}
+
+// Rolling returns: the annualised return over the N years up to each day of the period (rollingReturns in stats.js).
+// The look-back can reach before From, but only into dates every shown line has, so all lines cover the same days.
+function drawRolling(windows) {
+  const years = state.rollYears;
+  for (const b of $("rolling-years").querySelectorAll("button")) b.setAttribute("aria-pressed", Number(b.dataset.years) === years);
+  const stretch = years === 1 ? "1 year" : `${years} years`;
+  const first = windows.map((w) => w.history[0].date).sort().at(-1); // the first date every line has
+  const rolls = windows.map((w) => rollingReturns(windowOf(w.history, first, state.end).points, years, state.start));
+  const fits = rolls.every((r) => r.length);
+  for (const node of [$("rolling-chart"), $("rolling-range").parentElement]) node.hidden = !fits;
+  if (!fits) {
+    const since = windows.length > 1 ? "these lines' shared prices start" : "its prices start";
+    $("rolling-lead").textContent = `No ${years}-year stretch fits between ${longDate(first)}, when ${since}, and ${longDate(state.end)}. Pick fewer years.`;
+    $("rolling-note").textContent = "";
+    return;
+  }
+
+  const ranges = rolls.map((r) => spread(r.map((x) => x.value)));
+  const range = ({ low, high }) => `from ${pctShort.format(low)} to ${pctShort.format(high)} a year`;
+  const widest = ranges.reduce((a, r, i) => (r.high - r.low > ranges[a].high - ranges[a].low ? i : a), 0);
+  const flat = pctShort.format(ranges[widest].low) === pctShort.format(ranges[widest].high); // cash: the same whatever the start
+  $("rolling-lead").textContent = flat
+    ? `${windows.length > 1 ? "Every line's" : `${windows[0].label}'s`} ${years}-year return stayed the same whatever the start day.`
+    : windows.length > 1
+      ? `${windows[widest].label} varied most: its ${years}-year returns ran ${range(ranges[widest])}, depending on the start day.`
+      : `${windows[0].label}'s ${years}-year returns ran ${range(ranges[0])}, depending on the start day.`;
+  // Never cut short quietly: say when the lines start later than From because the earlier days lack the history.
+  const starts = rolls[0][0].date;
+  $("rolling-note").textContent = Date.parse(starts) - Date.parse(state.start) > 7 * DAY
+    ? `The lines start on ${longDate(starts)}, the first day with ${stretch} of ${windows.length > 1 ? "shared " : ""}prices before it.`
+    : "";
+  $("rolling-range").replaceChildren(
+    element("thead", element("tr", element("td"), ...["Lowest", "Median", "Highest"].map((t) => Object.assign(element("th", t), { scope: "col" })))),
+    element("tbody", ...windows.map((w, i) => element(
+      "tr",
+      Object.assign(element("th", swatch(w.color), w.label), { scope: "row" }),
+      ...["low", "median", "high"].map((key) => element("td", pct.format(ranges[i][key]))),
+    ))),
+  );
+
+  const base = frame((v) => `${stretch} to ${longDate(v)}`, pct);
+  const [lo, hi] = [Math.min(0, ...ranges.map((r) => r.low)), Math.max(0, ...ranges.map((r) => r.high))];
+  charts.rolling.resize(); // it may have been hidden since the last draw
+  charts.rolling.setOption(
+    {
+      ...base,
+      xAxis: { ...base.xAxis, type: "time" },
+      yAxis: percentAxis(base.yAxis, lo, hi),
+      series: windows.map((w, i) => line(w, rolls[i].map((x) => [Date.parse(x.date), x.value]), i === 0 ? { markLine: zeroLine() } : {})),
+    },
+    true,
+  );
 }
 
 // Headline figures per line. Exactly two lines become a head-to-head, with the better value in each row marked.
@@ -815,18 +1003,68 @@ function drawHeatmap(windows) {
   $("heatmap").setAttribute("aria-label", `Monthly returns of ${w.label}`);
 }
 
+// How the lines move together: the correlation of daily returns for each pair over the period, the lower half of the
+// grid only, coloured like the Creator's (blue for together, orange for apart, stronger for bigger numbers).
+function drawCorrelation(windows) {
+  $("bt-corr-block").hidden = windows.length < 2;
+  if (windows.length < 2) return;
+  const head = element("tr", element("td"), ...windows.map((w) => Object.assign(element("th", swatch(w.color), w.label), { scope: "col" })));
+  const rows = windows.map((a, i) => element(
+    "tr",
+    Object.assign(element("th", swatch(a.color), a.label), { scope: "row" }),
+    ...windows.map((b, j) => {
+      if (j > i) return element("td"); // the upper half would repeat the lower half
+      if (j === i) {
+        const dash = element("span", "–");
+        dash.setAttribute("aria-hidden", "true");
+        return Object.assign(element("td", dash, hiddenText("same line")), { className: "self" });
+      }
+      const c = correlation(a.points, b.points);
+      const cell = element("td", show(c, num));
+      if (Number.isFinite(c)) cell.style.background = c >= 0 ? `rgba(42, 120, 214, ${0.08 + 0.6 * c})` : `rgba(235, 104, 52, ${0.08 + 0.6 * -c})`;
+      return cell;
+    }),
+  ));
+  $("bt-correlation").replaceChildren(element("thead", head), element("tbody", ...rows));
+}
+
+// The sentence over the scatter: which swung more and which returned more, against the other line or SPY.
+// Figures that print the same count as level.
+function scatterLead(windows, stats, spy, annual) {
+  const ret = (s) => (annual ? s.cagr : s.totalReturn);
+  const compare = (a, b, more, less, level) => (pct.format(a) === pct.format(b) ? level : a > b ? more : less);
+  const versus = (name, s, otherName, other) =>
+    `${name} swung ${compare(s.volatility, other.volatility, "more than", "less than", "as much as")} ${otherName} and returned ${compare(ret(s), ret(other), "more", "less", "the same")}.`;
+  if (windows.length === 1) {
+    return spy
+      ? versus(windows[0].label, stats[0], "the S&P 500 (SPY)", spy)
+      : `${windows[0].label}'s volatility was ${pct.format(stats[0].volatility)}, and it returned ${pct.format(ret(stats[0]))}${annual ? " a year" : ""}.`;
+  }
+  if (windows.length === 2) {
+    const [a, b] = stats[0].volatility >= stats[1].volatility ? [0, 1] : [1, 0];
+    return versus(windows[a].label, stats[a], windows[b].label, stats[b]);
+  }
+  const most = stats.reduce((a, s, i) => (ret(s) > ret(stats[a]) ? i : a), 0);
+  const calmest = stats.reduce((a, s, i) => (s.volatility < stats[a].volatility ? i : a), 0);
+  return most === calmest
+    ? `${windows[most].label} returned most and swung least.`
+    : `${windows[most].label} returned most, and ${windows[calmest].label} swung least.`;
+}
+
 // Volatility across, return up: one dot per line, coloured like its line. The S&P 500 (SPY) is a hollow
 // ring whose dashed cross splits the chart into four corners, so every dot reads against the market.
 function drawScatter(windows, stats) {
   const spyWindow = windowOf(state.benchmark, state.start, state.end);
   // SPY only when it covers the whole period (a few days' slack for holidays), never a shorter stretch.
-  const covers = spyWindow.points.length > 2 && Date.parse(spyWindow.points[0].date) - Date.parse(state.start) <= 7 * DAY && Date.parse(state.end) - Date.parse(spyWindow.points.at(-1).date) <= 7 * DAY;
+  const spyCovers = spyWindow.points.length > 2 && covers(spyWindow.points, state.start, state.end);
   const compared = windows.some((w) => w.label === BENCHMARK);
-  const spy = covers && !compared ? summarize(spyWindow.points, state.benchmark, spyWindow.nextDate) : null;
+  const spy = spyCovers && !compared ? summarize(spyWindow.points, state.benchmark, spyWindow.nextDate) : null;
   const annual = (spy ? [...stats, spy] : stats).every((s) => s.cagr !== null);
   const yName = annual ? "Annualised return" : "Total return";
   const missing = compared ? "" : !state.benchmark.length ? " The S&P 500 (SPY) didn't load, so it isn't shown." : !spy ? " The S&P 500 (SPY) has no prices for part of this period, so it isn't shown." : "";
   $("scatter-note").textContent = `Each dot is one compared asset: further right swings more, higher ${annual ? "grew faster per year" : "gained more over the period (it is under a year, so returns are not annualised)"}.${spy ? " The ring is the S&P 500 (SPY) over the same dates. Its dashed lines split the chart into four corners that say how each dot did against it." : missing}`;
+
+  $("scatter-lead").textContent = scatterLead(windows, stats, spy, annual);
 
   const point = (s) => [s.volatility, annual ? s.cagr : s.totalReturn];
   const dots = stats.map(point);

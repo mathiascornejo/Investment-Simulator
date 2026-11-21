@@ -123,3 +123,50 @@ test("gap range: paired t-test on the months both lines have in full", () => {
   // 6 months, 3 then 1 points: 12 x (0.02 +/- 2.571 x 0.010954 / sqrt(6)), t = 2.571 for 5 degrees of freedom.
   close(s.gapRange(a.slice(0, 6), b).low, 0.24 - 12 * 2.571 * 0.0109545 / Math.sqrt(6), 2e-4);
 });
+
+test("drawdown episodes: high, low, depth and the date back at the high", () => {
+  const p = series([["2020-01-01", 100], ["2020-01-02", 120], ["2020-01-03", 90], ["2020-01-06", 95], ["2020-01-07", 120], ["2020-01-08", 117], ["2020-01-09", 125]]);
+  // 120 -> 90 is -25%, back level at 120 on the 7th (equal counts as back); 120 -> 117 is -2.5%, back on the 9th.
+  assert.deepEqual(s.drawdownEpisodes(p), [
+    { peak: "2020-01-02", trough: "2020-01-03", depth: -0.25, recovery: "2020-01-07" },
+    { peak: "2020-01-07", trough: "2020-01-08", depth: 117 / 120 - 1, recovery: "2020-01-09" },
+  ]);
+  // A fall still under water at the end has no recovery date.
+  assert.deepEqual(s.drawdownEpisodes(p.slice(0, 4)), [{ peak: "2020-01-02", trough: "2020-01-03", depth: -0.25, recovery: null }]);
+  assert.deepEqual(s.drawdownEpisodes(series([["2020-01-01", 1], ["2020-01-02", 1], ["2020-01-03", 2]])), []);
+});
+
+test("spread: lowest, median and highest", () => {
+  assert.deepEqual(s.spread([3, 1, 2]), { low: 1, median: 2, high: 3 });
+  assert.deepEqual(s.spread([4, 1, 3, 2]), { low: 1, median: 2.5, high: 4 });
+});
+
+test("rolling returns: annualised from the last day on or before the date N years back", () => {
+  const p = series([["2019-12-31", 100], ["2020-06-30", 105], ["2020-12-31", 110], ["2021-01-04", 121], ["2021-06-30", 126]]);
+  const out = s.rollingReturns(p, 1);
+  // The first two days have no price a year or more before them. 2021-01-04 looks back to 2020-01-04: the
+  // last day on or before it is 2019-12-31, 370 days earlier.
+  assert.deepEqual(out.map((r) => r.date), ["2020-12-31", "2021-01-04", "2021-06-30"]);
+  close(out[0].value, 1.1 ** (365.25 / 366) - 1);
+  close(out[1].value, 1.21 ** (365.25 / 370) - 1);
+  close(out[2].value, 1.2 ** (365.25 / 365) - 1);
+  assert.deepEqual(s.rollingReturns(p, 1, "2021-01-01").map((r) => r.date), ["2021-01-04", "2021-06-30"]);
+  assert.deepEqual(s.rollingReturns(p, 2), []);
+});
+
+test("holding periods: month-end to month-end, share lost, worst / median / best a year", () => {
+  const months = ["2020-01", "2020-02", "2020-03", "2020-04", "2020-05", "2020-06", "2020-07", "2020-08", "2020-09", "2020-10", "2020-11", "2020-12", "2021-01", "2021-02", "2021-03"];
+  const values = [100, 100, 50, 80, 80, 80, 80, 80, 80, 80, 80, 80, 110, 90, 60];
+  // A mid-month price is not a month-end, so it starts nothing.
+  const p = series([["2020-01-15", 999], ...months.map((m, i) => [`${m}-28`, values[i]])]);
+  // Three 1-year holds: Jan to Jan +10%, Feb to Feb -10%, Mar to Mar +20%.
+  const one = s.holdingPeriods(p, 1);
+  assert.equal(one.count, 3);
+  close(one.lossShare, 1 / 3);
+  close(one.low, -0.1);
+  close(one.median, 0.1);
+  close(one.high, 0.2);
+  assert.equal(s.holdingPeriods(p, 2), null);
+  // 100 to 121 over two years is 10% a year.
+  close(s.holdingPeriods(series([["2020-01-31", 100], ["2022-01-31", 121]]), 2).median, 0.1);
+});
