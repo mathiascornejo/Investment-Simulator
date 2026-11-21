@@ -81,6 +81,15 @@
                 <button type="button" data-months="max">Max</button>
               </div>
             </div>
+            <div class="notch" data-label="Past crash">
+              <!-- Names match CRISES in js/montecarlo.js, which holds the dates. -->
+              <div id="crashes" class="segmented" role="group" aria-label="Past crash">
+                <button type="button" data-crisis="Dot-com crash">Dot-com</button>
+                <button type="button" data-crisis="2008 financial crisis">2008</button>
+                <button type="button" data-crisis="2020 pandemic crash">COVID</button>
+                <button type="button" data-crisis="2022 rate-rise sell-off">2022</button>
+              </div>
+            </div>
             <div class="notch" data-label="Date range">
               <label>From <input type="date" id="from"></label>
               <label>To <input type="date" id="to"></label>
@@ -97,6 +106,8 @@
             </div>
           </div>
           <p class="hint">Scroll over a chart to zoom, drag to move, drag the dates strip to stretch, double-click to reset.</p>
+          <p id="crisis-note" class="hint" aria-live="polite"></p>
+          <p id="growth-lead" class="takeaway"></p>
           <div id="growth-chart" class="chart chart-tall"></div>
           <div id="summary" class="summary"></div>
           <p id="gap-note" class="hint gap-note" hidden></p>
@@ -110,13 +121,41 @@
               <button type="button" data-key-length="7">Month</button>
             </div>
           </div>
+          <p id="returns-lead" class="takeaway"></p>
           <div id="returns-chart" class="chart"></div>
+        </div>
+
+        <div class="block">
+          <div class="block-head">
+            <h2>Rolling Returns</h2>
+            <div id="rolling-years" class="segmented" role="group" aria-label="Years in each stretch">
+              <button type="button" data-years="1">1Y</button>
+              <button type="button" data-years="3">3Y</button>
+              <button type="button" data-years="5">5Y</button>
+              <button type="button" data-years="10">10Y</button>
+            </div>
+          </div>
+          <p class="hint">Each point is the yearly (<span data-term="annualised return">annualised</span>) return over the years up to that day, so it can look back before the From date. It shows how much the result depended on the day you started.</p>
+          <p id="rolling-lead" class="takeaway"></p>
+          <div id="rolling-chart" class="chart"></div>
+          <div class="table-scroll"><table id="rolling-range" class="bt-table" aria-label="Lowest, median and highest rolling return"></table></div>
+          <p id="rolling-note" class="hint"></p>
+        </div>
+
+        <div class="block">
+          <h2>Holding Periods</h2>
+          <p class="hint">Each line is bought at every month-end in its full price history, whatever the period above, and held for the years shown. Worst, median and best are yearly (<span data-term="annualised return">annualised</span>) returns. The holds overlap, so they are not independent tries. A dash means the history is shorter than the hold.</p>
+          <div class="table-scroll"><table id="holding" class="bt-table" aria-label="Holding periods"></table></div>
         </div>
 
         <div class="block">
           <h2><span data-term="drawdown">Drawdowns</span></h2>
           <p class="hint">Below 0% is below the previous high. The deepest point of each is pinned with its month.</p>
+          <p id="drawdown-lead" class="takeaway"></p>
           <div id="drawdown-chart" class="chart chart-short"></div>
+          <h3 class="data-head">Deepest falls</h3>
+          <div class="table-scroll"><table id="falls" class="bt-table" aria-label="Deepest falls"></table></div>
+          <p id="underwater" class="hint"></p>
         </div>
 
         <div class="block">
@@ -135,7 +174,18 @@
         <div class="block">
           <h2>Risk and Return</h2>
           <p id="scatter-note" class="hint">Each dot is one compared asset: further right swings more, higher grew faster.</p>
+          <p id="scatter-lead" class="takeaway"></p>
           <div id="scatter-chart" class="chart"></div>
+        </div>
+
+        <div class="block" id="bt-corr-block" hidden>
+          <h2><span data-term="correlation">How They Move Together</span></h2>
+          <p class="hint">Correlation of daily returns over the chosen period, for every pair of lines.</p>
+          <div class="table-scroll"><table id="bt-correlation" class="correlation" aria-label="Correlation of daily returns between the lines"></table></div>
+          <div class="corr-key">
+            <span class="corr-scale" aria-hidden="true"></span>
+            <span>−1 moves opposite</span><span>0 unrelated</span><span>1 moves together</span>
+          </div>
         </div>
 
         <div class="block">

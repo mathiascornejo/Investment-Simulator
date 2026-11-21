@@ -43,6 +43,65 @@ export function drawdowns(points) {
 
 export const maxDrawdown = (points) => drawdowns(points).reduce((worst, d) => Math.min(worst, d.value), 0);
 
+// Each fall below a previous high, oldest first: the high's date, the lowest point (date and depth, as in drawdowns()),
+// and the first date back at the high, or null if it hasn't got back yet.
+export function drawdownEpisodes(points) {
+  const out = [];
+  let peak = points[0];
+  let fall = null;
+  for (const p of points.slice(1)) {
+    if (p.adjClose >= peak.adjClose) {
+      if (fall) out.push({ ...fall, recovery: p.date });
+      [peak, fall] = [p, null];
+      continue;
+    }
+    const depth = p.adjClose / peak.adjClose - 1;
+    if (!fall) fall = { peak: peak.date, trough: p.date, depth };
+    else if (depth < fall.depth) Object.assign(fall, { trough: p.date, depth });
+  }
+  if (fall) out.push({ ...fall, recovery: null });
+  return out;
+}
+
+// Lowest, median and highest of a list of numbers.
+export function spread(values) {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = sorted.length / 2;
+  const median = sorted.length % 2 ? sorted[Math.floor(mid)] : (sorted[mid - 1] + sorted[mid]) / 2;
+  return { low: sorted[0], median, high: sorted.at(-1) };
+}
+
+// The same date `years` earlier ("2021-06-30" -> "2018-06-30"); a 29 Feb that doesn't exist still sorts right.
+const yearsBack = (date, years) => `${+date.slice(0, 4) - years}${date.slice(4)}`;
+
+// For each day on or after `from`: the annualised return over the `years` years up to it, starting from the
+// last day on or before the same date `years` earlier. Days with less history than that before them are left out.
+export function rollingReturns(points, years, from = "") {
+  const out = [];
+  let start = 0;
+  for (const p of points) {
+    const back = yearsBack(p.date, years);
+    if (p.date < from || points[0].date > back) continue;
+    while (points[start + 1].date <= back) start++;
+    out.push({ date: p.date, value: cagr([points[start], p]) });
+  }
+  return out;
+}
+
+// Every holding period of `years` years from one month-end to the same month-end `years` later (the last
+// month-end is the latest price): how many there were, the share that lost money, and the worst, median and best
+// annualised return. Null when the history is shorter than `years`.
+export function holdingPeriods(points, years) {
+  const monthEnds = points.filter((p, i) => points[i + 1]?.date.slice(0, 7) !== p.date.slice(0, 7));
+  const byMonth = new Map(monthEnds.map((p) => [p.date.slice(0, 7), p]));
+  const returns = monthEnds.flatMap((p) => {
+    const end = byMonth.get(yearsBack(p.date, -years).slice(0, 7));
+    return end ? [(end.adjClose / p.adjClose) ** (1 / years) - 1] : [];
+  });
+  if (!returns.length) return null;
+  return { count: returns.length, lossShare: returns.filter((r) => r < 0).length / returns.length, ...spread(returns) };
+}
+
 export const volatility = (returns) => stdev(returns) * Math.sqrt(TRADING_DAYS);
 
 // shortcut: Sharpe and Sortino assume a 0% risk-free rate. Subtract a daily T-bill return
