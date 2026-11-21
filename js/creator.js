@@ -586,7 +586,11 @@ function drawTreemap(holdings) {
           rich: { ticker: { fontWeight: 600, fontSize: 13, lineHeight: 18 }, weight: { fontWeight: 300, fontSize: 18, lineHeight: 24 } },
         },
         // Labels only where they fit (the tooltip still names small tiles), in whichever of ink or white reads better.
-        data: holdings.map((h) => ({ name: h.ticker, title: h.name, value: h.weight, itemStyle: { color: h.color }, label: { show: h.weight >= 4, color: labelColor(h.color) } })),
+        // Rich-text parts don't inherit an item's label colour (they fall back to the series' white), so each part gets it too.
+        data: holdings.map((h) => {
+          const color = labelColor(h.color);
+          return { name: h.ticker, title: h.name, value: h.weight, itemStyle: { color: h.color }, label: { show: h.weight >= 4, color, rich: { ticker: { color }, weight: { color } } } };
+        }),
       }],
     },
     true,

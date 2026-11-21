@@ -322,7 +322,7 @@ function drawSpending(spending, { annualWithdrawal, growth }) {
 // The failure rate at every first-year withdrawal, from each run's largest withdrawal that would just have lasted.
 function drawRates(result, { startValue, annualWithdrawal, growth }, runs, years) {
   const sorted = result.perfectRates;
-  $("mc-rates-chart").hidden = !sorted;
+  $("mc-rates-chart").hidden = $("mc-rates-lead").hidden = !sorted; // an empty lead would leave a gap beside the title
   if (!sorted) {
     $("mc-rates-lead").textContent = "";
     $("mc-rates-hint").textContent = "This chart is hidden for these settings: it can only be worked out with no contributions and the “Same amount, rising each year” withdrawal rule.";
@@ -331,7 +331,7 @@ function drawRates(result, { startValue, annualWithdrawal, growth }, runs, years
   const yours = annualWithdrawal / startValue;
   const amount = (share) => `${rate.format(share)} of the starting amount (${moneyFit.format(share * startValue)})`;
   const [at5, at10] = [0.05, 0.1].map((p) => percentile(sorted, p));
-  $("mc-rates-lead").textContent = `A first-year withdrawal of ${amount(at5)} ran out in 5% of runs, and ${amount(at10)} in 10%. Yours, ${rate.format(yours)}, ran out in ${rate.format(result.failureRate)}.`;
+  $("mc-rates-lead").textContent = `A first-year withdrawal of ${amount(at5)} ran out in 5% of runs, and ${amount(at10)} in 10%. Yours, ${rate.format(yours)} (${moneyFit.format(annualWithdrawal)}), ran out in ${rate.format(result.failureRate)}.`;
   $("mc-rates-hint").textContent =
     `From the same ${runs.toLocaleString()} runs: for each run, the largest first-year withdrawal that would just have lasted ${yearsWord(years)}` +
     `${growth > 0 ? `, rising ${rate.format(growth)} a year like yours` : ""}. The curve shows the share of runs that would have run out at each amount. The dashed line marks yours.`;
@@ -386,7 +386,7 @@ function drawStarts(months, name, years, plan) {
   const apart = Math.floor(months.length / span);
   $("mc-starts-hint").textContent =
     `Each start follows the real monthly returns of ${name} in their real order for ${yearsWord(years)}, with the same ${planWords(plan)} as above. ` +
-    (starts.length > 1 ? `These ${count} periods overlap: starts a month apart share all but one month, so they are far from ${count} separate tests. ${name}'s ${months.length} months hold only ${apart} ${years}-year ${apart === 1 ? "period" : "periods"} that don't overlap.` : "");
+    (starts.length > 1 ? `These ${count} periods overlap: starts a month apart share all but one month, so they are far from ${count} separate tests. ${name}'s ${months.length} months hold only ${apart} ${years}-year ${apart === 1 ? "period that doesn't" : "periods that don't"} overlap.` : "");
   const chart = chartIn("mc-starts-chart");
   chart.resize(); // the box may have been hidden since the chart was made
   const base = frame((period) => `Starting ${monthLabel(period)}`, { format: (v) => (v > 0 ? moneyFit.format(v) : "Ran out") });
