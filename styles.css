@@ -189,7 +189,7 @@ label {
 /* Benchmark: its box and the "Show on charts" check on one line, the hint under them. */
 .bench { display: flex; flex-wrap: wrap; align-items: center; gap: 0.375rem 1rem; margin-top: 1rem; }
 #compare-form .bench > label[for] { flex-basis: 100%; margin: 0; }
-.bench .combo { width: min(100%, 12rem); }
+.bench .combo { flex: 1 1 8rem; max-width: 12rem; } /* narrows on a phone so "Show on charts" stays beside it */
 .bench .combo input { width: 100%; }
 #compare-form .bench label.check { display: inline-flex; align-items: center; gap: 0.375rem; min-height: 2.75rem; margin: 0; }
 .bench .hint { flex-basis: 100%; margin: 0; }
