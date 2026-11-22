@@ -61,6 +61,7 @@ input.addEventListener("keydown", (event) => {
 function removeChip(label) {
   chips = chips.filter((c) => c !== label);
   if (chips.length) return form.requestSubmit();
+  stopLoad(); // a load still going would bring back what was just removed
   renderChips();
   $("results").hidden = true;
   say("");
@@ -198,6 +199,17 @@ function applyPreset(months) {
 
 // Loading
 let loads = 0; // counts loads: only the latest one draws its results (an older one can finish later) and un-fades them
+const loading = () => $("results").getAttribute("aria-busy") === "true";
+// What is on screen, or still loading, follows a setting change; nothing else needs to.
+const inUse = () => !$("results").hidden || loading();
+// Drops the load in progress, if any: it draws nothing when it ends.
+function stopLoad() {
+  if (!loading()) return;
+  loads++;
+  form.querySelector("button[type=submit]").disabled = false;
+  $("bt-skeleton").hidden = true;
+  $("results").setAttribute("aria-busy", "false");
+}
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   const keep = keepPeriod; // only the benchmark changed (benchChanged)
@@ -268,8 +280,9 @@ form.addEventListener("submit", async (event) => {
   });
   const why = (t) => errors[t].message.replace(/\.$/, "");
   // After the message: anything odd in the prices that did load, and a Try again button when it could help.
-  const report = (problems) => {
-    say([...problems, priceWarnings(prices)].filter(Boolean).join(" "), problems.length > 0);
+  // With a span (the dates the lines share), only odd prices inside it are mentioned.
+  const report = (problems, from, to) => {
+    say([...problems, priceWarnings(prices, undefined, from, to)].filter(Boolean).join(" "), problems.length > 0);
     if (Object.values(errors).some((e) => e.retry !== false)) tryAgain(status, () => form.requestSubmit());
   };
 
@@ -313,7 +326,7 @@ form.addEventListener("submit", async (event) => {
   drawDataNotes(latestStarter);
   drawHolding();
 
-  report(problems);
+  report(problems, state.min, state.max);
   $("results").hidden = false;
   $("bt-examples").hidden = true; // the example cards go after the first comparison
   $("bt-share-status").replaceChildren();
@@ -368,7 +381,7 @@ let benchAsked = DEFAULT_BENCHMARK; // the benchmark the last Compare asked for,
 let keepPeriod = false;
 function benchChanged() {
   const text = benchInput.value.trim() || DEFAULT_BENCHMARK;
-  if (text.toUpperCase() === benchAsked.toUpperCase() || $("results").hidden) return;
+  if (text.toUpperCase() === benchAsked.toUpperCase() || !inUse()) return;
   keepPeriod = true;
   form.requestSubmit();
 }
@@ -1501,4 +1514,4 @@ exampleCards($("bt-examples"), "backtester", [
 renderChips();
 openLink();
 
-addEventListener("inflation-changed", () => { if (!$("results").hidden) form.requestSubmit(); });
+addEventListener("inflation-changed", () => { if (inUse()) form.requestSubmit(); }); // a load still going read the old setting

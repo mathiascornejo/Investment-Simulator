@@ -49,7 +49,10 @@ export function warningText(ticker, found) {
   return text.join(" ");
 }
 
-// Every loaded series ({ ticker: points }) checked, in words; "" when nothing looks wrong.
-export function priceWarnings(prices, today) {
-  return Object.entries(prices).map(([ticker, points]) => warningText(ticker, dataWarnings(points, today))).filter(Boolean).join(" ");
+// Every loaded series ({ ticker: points }) checked, in words; "" when nothing looks wrong. With from and to
+// ("YYYY-MM-DD"), only findings on dates inside that span count (a stale latest price always does), so a gap
+// years before the dates being compared isn't listed.
+export function priceWarnings(prices, today, from = "", to = "9999") {
+  const inside = (w) => w.kind === "stale" || ((w.to ?? w.date) >= from && (w.from ?? w.date) <= to);
+  return Object.entries(prices).map(([ticker, points]) => warningText(ticker, dataWarnings(points, today).filter(inside))).filter(Boolean).join(" ");
 }

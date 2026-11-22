@@ -12,14 +12,15 @@ function amounts(style) {
   const moneyCompact = { format: (v) => (Math.abs(v) < 1e15 ? compact : scientific).format(v) };
   return { money: whole, moneyCompact, moneyFit: { format: (v) => (Math.abs(v) < 1e9 ? whole : moneyCompact).format(v) } };
 }
-export const { money, moneyCompact, moneyFit } = amounts({ style: "currency", currency: "USD" });
+const dollars = amounts({ style: "currency", currency: "USD" });
+export const { money, moneyCompact, moneyFit } = dollars;
 
 // The same three for amounts in another currency (see currency.js): "GBp" (London's pence) counts as pounds, since
 // a sum of money is in pounds whatever the prices are quoted in. null, "mixed" or an unknown code: plain numbers.
 const byCode = new Map();
 export function moneyIn(code) {
   const currency = code === "GBp" ? "GBP" : code;
-  if (currency === "USD") return { money, moneyCompact, moneyFit };
+  if (currency === "USD") return dollars; // the same object every time, so two units can be compared with ===
   if (!byCode.has(currency)) {
     byCode.set(currency, amounts(/^[A-Z]{3}$/.test(currency) ? { style: "currency", currency } : {}));
   }

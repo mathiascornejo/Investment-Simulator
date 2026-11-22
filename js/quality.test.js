@@ -56,3 +56,16 @@ test("the words name the ticker, the move and the split; more than three are cou
   assert.match(warningText("ABC", many), /ABC has 2 more warnings like these\.$/);
   assert.equal(priceWarnings({ SPY: series([1, 1.01]) }, "2024-01-02"), "");
 });
+
+test("with a span, only findings inside it are listed; a stale price always is", () => {
+  // A 3-for-1 split on 2024-01-03, then prices up to 2024-01-05, checked on 2024-01-20 (15 days later: stale).
+  const prices = { XYZ: series([300, 301, 100, 101, 102]) };
+  assert.match(priceWarnings(prices, "2024-01-20"), /3-for-1 split.*15 days ago/);
+  const after = priceWarnings(prices, "2024-01-20", "2024-01-04", "2024-01-05");
+  assert.doesNotMatch(after, /split/);
+  assert.match(after, /15 days ago/);
+  // A gap counts when any part of it falls in the span.
+  const gap = { G: [{ date: "2024-01-01", adjClose: 1 }, { date: "2024-01-31", adjClose: 1 }] };
+  assert.match(priceWarnings(gap, "2024-01-31", "2024-01-15", "2024-01-31"), /no prices for/);
+  assert.equal(priceWarnings(gap, "2024-01-31", "2024-02-01", "2024-03-01"), "");
+});

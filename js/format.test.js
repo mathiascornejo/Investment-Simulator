@@ -15,6 +15,8 @@ test("csv: text that starts like a formula gets an apostrophe; negative numbers 
 
 test("moneyIn: dollars as before, pence as pounds, mixed as plain numbers", () => {
   assert.equal(moneyIn("USD").money, money);
+  assert.equal(moneyIn("USD"), moneyIn("USD")); // one object per currency, so the Monte Carlo tab can tell two runs share one
+  assert.equal(moneyIn("GBp"), moneyIn("GBP"));
   assert.equal(moneyIn("GBp").money.format(1234), new Intl.NumberFormat(undefined, { style: "currency", currency: "GBP", maximumFractionDigits: 0 }).format(1234));
   assert.equal(moneyIn("mixed").money.format(12345.6), new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(12346));
   assert.equal(moneyIn("mixed").moneyFit.format(2e9), new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 }).format(2e9));

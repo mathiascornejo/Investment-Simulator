@@ -573,7 +573,7 @@ async function drawProfile(portfolio, ticket) {
   profileData = { portfolio, sorted, colored, corr, from: points[0].date, to: points.at(-1).date };
   // Anything odd in the prices, after whatever the status line says (it is replaced on the next redraw).
   status.querySelector(".data-warn")?.remove();
-  const warnings = priceWarnings(prices);
+  const warnings = priceWarnings(prices, undefined, points[0].date, points.at(-1).date); // only on the dates measured
   if (warnings) status.append(Object.assign(element("span", ` ${warnings}`), { className: "data-warn" }));
 }
 

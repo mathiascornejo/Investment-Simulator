@@ -161,6 +161,9 @@ form.addEventListener("submit", async (event) => {
   } finally {
     if (ticket === launches) {
       $("mc-results").setAttribute("aria-busy", "false");
+      // A run refused at once (a box out of range) may have dropped an older one that disabled these.
+      button.disabled = false;
+      $("mc-skeleton").hidden = true;
       if (hadFocus && document.activeElement === document.body) button.focus({ preventScroll: true }); // disabling it dropped focus
     }
   }
@@ -851,4 +854,5 @@ exampleCards($("mc-examples"), "monte-carlo", [{
 }]);
 openLink();
 
-addEventListener("inflation-changed", () => { if (!$("mc-results").hidden) form.requestSubmit(); });
+// Results on screen, or a run still loading (it read the old setting), run again with the new one.
+addEventListener("inflation-changed", () => { if (!$("mc-results").hidden || $("mc-results").getAttribute("aria-busy") === "true") form.requestSubmit(); });
