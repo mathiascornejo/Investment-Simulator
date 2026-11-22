@@ -174,7 +174,7 @@ h1, .profile-title, .empty strong { text-wrap-style: balance; }
 
 .status:empty { min-height: 0; margin: 0; } /* no blank band when there is nothing to say */
 #compare-form { margin-bottom: 1.5rem; }
-.status[data-state="error"] { color: var(--loss); }
+.status[data-state="error"], .flag-note { color: var(--loss); }
 
 /* Form controls */
 label {
@@ -230,6 +230,7 @@ legend {
 .field-grid label { display: block; align-self: end; margin-bottom: 0.375rem; }
 .field-grid .help:empty { min-height: 0; margin: 0; } /* no blank line on phones; wider rows are still sized by the other hints */
 .field-grid input, .field-grid select { width: 100%; }
+.deposit-fields { margin-top: 1rem; } /* room between the Regular Deposits sentence and its first label */
 #mc-form .status { margin-bottom: 0; }
 #mc-results { margin-top: 1.5rem; }
 /* Same runs with one thing changed (a crash first, no fee): sentences under the figures. */
@@ -301,16 +302,22 @@ legend {
 #mc-crises thead th:first-child, #mc-crises td[colspan] { text-align: left; }
 #mc-crises tbody th { min-width: 10rem; color: var(--ink); }
 #mc-crises td small, #mc-crises th small { display: block; font-size: 0.875rem; font-weight: 400; color: var(--muted); }
+#mc-crises td small:first-of-type { white-space: nowrap; } /* "on Oct 19, 1987" stays on one line; stand-in notes below it still wrap */
 #mc-crises-note { margin-top: 0.75rem; }
 
 /* Portfolio creator form */
 .field { margin-bottom: 1.5rem; }
 .field > label { display: block; margin-bottom: 0.375rem; }
 
+/* The heading row and every holding row share the fieldset's columns (subgrid), so "Weight %" stays over its
+   boxes when a narrow screen squeezes the ticker column. */
+#portfolio-form fieldset { display: grid; grid-template-columns: minmax(6rem, 10rem) 6.5rem auto 1fr; column-gap: 0.5rem; } /* 1fr: the rest, for the Add holding row */
+#portfolio-form fieldset > * { grid-column: 1 / -1; }
+#holdings { display: grid; grid-template-columns: subgrid; }
 .holding {
   display: grid;
-  grid-template-columns: minmax(6rem, 10rem) 6.5rem auto;
-  justify-content: start;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
   align-items: center;
   gap: 0.5rem;
   margin-bottom: 0.5rem;
@@ -318,9 +325,10 @@ legend {
 
 .holding input { width: 100%; }
 .holding-head { margin-bottom: 0.25rem; font-size: 0.875rem; color: var(--muted); }
-.holding .name { grid-column: 1 / -1; contain: inline-size; margin-top: -0.25rem; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 0.8125rem; color: var(--muted); } /* the fund's name under its row; contain: a long name never widens the columns */
+.holding .name { grid-column: 1 / 4; contain: inline-size; margin-top: -0.25rem; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 0.8125rem; color: var(--muted); } /* the fund's name under its row; contain: a long name never widens the columns */
 .holding .name:empty { display: none; }
 .ticker { text-transform: uppercase; }
+.ticker::placeholder { text-transform: none; } /* "Add a ticker" in plain case, short enough for a phone's narrow box */
 
 .total { align-self: center; color: var(--muted); }
 .total[data-off] { color: var(--loss); }
@@ -673,7 +681,7 @@ button[type="submit"]:disabled { cursor: progress; }
   overflow-x: auto;
   margin-top: 0.75rem;
   background:
-    linear-gradient(to left, var(--paper) 30%, transparent) right / 2.5rem 100% no-repeat local,
+    linear-gradient(to left, var(--paper) 0.875rem, transparent) right / 2.5rem 100% no-repeat local, /* solid over the whole shade, so no faint line shows */
     radial-gradient(farthest-side at 100% 50%, rgba(26, 26, 26, 0.16), transparent) right / 0.875rem 100% no-repeat scroll;
 }
 .table-scroll tr > :first-child { position: sticky; left: 0; z-index: 1; background: var(--paper); }

@@ -309,7 +309,7 @@ async function save(button, copy = false) {
   const portfolio = readForm(copy);
   if (portfolio.problem) {
     say(portfolio.problem, true);
-    return flagField(portfolio.input);
+    return flagField(portfolio.input, portfolio.problem);
   }
   const original = editing; // before the wait: another portfolio may be opened meanwhile
   const [before, openedBefore] = [formState(), opened]; // and the form may be edited
@@ -328,14 +328,15 @@ async function save(button, copy = false) {
   if (failed.length) {
     const missing = failed.filter(([, e]) => e.retry === false).map(([t]) => t);
     const unchecked = failed.filter(([, e]) => e.retry !== false);
-    say([
+    const message = [
       "Not saved.",
       missing.length && `No price data was found for ${missing.join(", ")}.`,
       unchecked.length && `${unchecked.map(([t]) => t).join(", ")} couldn't be checked: ${unchecked[0][1].message}`,
-    ].filter(Boolean).join(" "), true);
+    ].filter(Boolean).join(" ");
+    say(message, true);
     if (unchecked.length) tryAgain(status, () => save(button, copy));
     const row = [...$("holdings").children].find((r) => r.querySelector("input").value.trim().toUpperCase() === failed[0][0]);
-    return row && flagField(row.querySelector("input"));
+    return row && flagField(row.querySelector("input"), message);
   }
   portfolio.holdings.forEach((h, i) => { if (found[i]) h.name = found[i]; });
 

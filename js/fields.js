@@ -87,7 +87,18 @@ export function liveField(input, { compact = false, clear = false, ticker = inpu
 
 // Points at the box that stopped a form: scrolls it into view, focuses it, and shakes it red like a failed live
 // check. A live field clears the red itself once its value is fine; any other box clears it on the next edit.
-export function flagField(input) {
+// why: the reason, repeated at the end of the box's .field when the form's status line would be out of view.
+let flagNote = null;
+export function flagField(input, why) {
+  flagNote?.remove();
+  const status = input.form?.querySelector(".status");
+  const field = input.closest(".field");
+  if (why && status && field && Math.abs(status.getBoundingClientRect().top - input.getBoundingClientRect().top) > innerHeight / 2 - 48) {
+    const note = (flagNote = make("p", "hint flag-note"));
+    note.textContent = why;
+    field.append(note);
+    for (const type of ["input", "change"]) input.form.addEventListener(type, () => note.remove(), { once: true }); // gone at the next edit
+  }
   const box = input.closest(".fx") ?? input;
   box.classList.remove("shake");
   void box.offsetWidth; // restart the animation
@@ -105,7 +116,9 @@ export function dropdown(select, { help } = {}) {
   const root = make("div", "dd");
   select.after(root);
   select.hidden = true;
-  root.innerHTML = `<button type="button" class="dd-btn" aria-haspopup="listbox" aria-expanded="false"><span class="val"></span>${CHEV}</button><div class="dd-menu"><ul role="listbox"></ul></div>`;
+  // A select-only combobox: focus stays on the button, and aria-activedescendant names the highlighted option.
+  const listId = `dd-${++uid}`;
+  root.innerHTML = `<button type="button" class="dd-btn" role="combobox" aria-haspopup="listbox" aria-expanded="false" aria-controls="${listId}"><span class="val"></span>${CHEV}</button><div class="dd-menu"><ul role="listbox" id="${listId}"></ul></div>`;
   const btn = root.querySelector(".dd-btn");
   const val = root.querySelector(".val");
   const ul = root.querySelector("ul");
@@ -126,11 +139,13 @@ export function dropdown(select, { help } = {}) {
   const paint = () => {
     items.forEach((li, i) => li.classList.toggle("act", i === act));
     items[act]?.scrollIntoView({ block: "nearest" });
+    if (items[act]) btn.setAttribute("aria-activedescendant", items[act].id);
   };
   function sync() {
     items = [...select.options].map((o, i) => {
       const li = make("li", "", `<span class="t"></span>${CHECK}`);
       li.setAttribute("role", "option");
+      li.id = `${listId}-${i}`;
       li.querySelector(".t").textContent = o.text; // textContent: portfolio names are user text
       li.addEventListener("mouseenter", () => { act = i; paint(); });
       li.addEventListener("click", () => pick(i));
@@ -150,6 +165,7 @@ export function dropdown(select, { help } = {}) {
   const close = (refocus) => {
     delete root.dataset.open;
     btn.setAttribute("aria-expanded", "false");
+    btn.removeAttribute("aria-activedescendant");
     if (refocus) btn.focus();
   };
   function pick(i) {
@@ -181,6 +197,10 @@ export function dropdown(select, { help } = {}) {
     if (k === "ArrowDown" || k === "ArrowUp") {
       e.preventDefault();
       act = (act + (k === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+      paint();
+    } else if (k === "Home" || k === "End") {
+      e.preventDefault();
+      act = k === "Home" ? 0 : items.length - 1;
       paint();
     } else if (k === "Enter") { e.preventDefault(); pick(act); }
     else if (k === "Escape") { e.preventDefault(); close(true); }

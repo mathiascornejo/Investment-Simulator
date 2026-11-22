@@ -8,7 +8,9 @@ function showTab() {
   const current = tabs.includes(hash) ? hash : tabs[0];
   for (const id of tabs) {
     document.getElementById(id).hidden = id !== current;
-    document.querySelector(`nav a[href="#${id}"]`).toggleAttribute("aria-current", id === current);
+    const link = document.querySelector(`nav a[href="#${id}"]`);
+    if (id === current) link.setAttribute("aria-current", "page"); // an empty aria-current reads as false
+    else link.removeAttribute("aria-current");
   }
   document.title = `${document.querySelector(`nav a[href="#${current}"]`).textContent.trim()} · Investment Simulator`;
   scrollTo(0, 0);
