@@ -4,7 +4,8 @@
 const CHEV = '<svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg>';
 const CHECK = '<svg class="ck" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5l3.2 3L13 4.5"/></svg>';
 const TICKER = /^[A-Z0-9][A-Z0-9.-]{0,11}$/;
-const n = (x) => x.toLocaleString("en-US");
+const big = new Intl.NumberFormat("en-US", { notation: "compact", compactDisplay: "long" });
+const n = (x) => (Math.abs(x) >= 1e6 ? big.format(x) : x.toLocaleString("en-US")); // "1 billion", not "1,000,000,000"
 let uid = 0;
 
 const make = (tag, className, html = "") => Object.assign(document.createElement(tag), { className, innerHTML: html });

@@ -52,13 +52,14 @@ const yearly = (v) => `${formUnit.money.format(v)} a year`;
 const formats = { "mc-start": (v) => formUnit.money.format(v), "mc-withdrawal": yearly, "mc-contribution": yearly };
 const readBacks = ["mc-start", "mc-withdrawal", "mc-growth", "mc-contribution", "mc-fee", "mc-years"].map((id) => liveField($(id), { format: formats[id] }));
 // What each box needs, said in the status line when a run is refused (the box itself is pointed at too).
+// m formats an amount in the form's currency ("$1", "₱1", or a plain number when the holdings' currencies differ).
 const NEEDS = {
-  "mc-start": "Check the starting amount: from $1 to $1 trillion.",
-  "mc-withdrawal": "Check the withdrawal per year: from $0 to $1 trillion.",
-  "mc-growth": "Check how much withdrawals rise each year: from 0% to 20%.",
-  "mc-contribution": "Check the contribution per year: from $0 to $1 trillion.",
-  "mc-fee": "Check the fee per year: from 0% to 10%.",
-  "mc-years": "Check the years to simulate: a whole number from 1 to 60.",
+  "mc-start": (m) => `Check the starting amount: from ${m(1)} to ${m(1)} trillion.`,
+  "mc-withdrawal": (m) => `Check the withdrawal per year: from ${m(0)} to ${m(1)} trillion.`,
+  "mc-growth": () => "Check how much withdrawals rise each year: from 0% to 20%.",
+  "mc-contribution": (m) => `Check the contribution per year: from ${m(0)} to ${m(1)} trillion.`,
+  "mc-fee": () => "Check the fee per year: from 0% to 10%.",
+  "mc-years": () => "Check the years to simulate: a whole number from 1 to 60.",
 };
 const form = $("mc-form");
 const status = $("mc-status");
@@ -146,20 +147,28 @@ function simulateAway(input) {
   }
 }
 
-// Results already on screen fade while a new run loads and runs; only the latest run un-fades them.
+// Results already on screen fade while a new run loads and runs. Runs can overlap (a link, a setting change or
+// Try again starts one while another is going), so only the latest draws its results and un-fades them.
 let launches = 0;
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   const ticket = ++launches;
+  const button = form.querySelector("button[type=submit]");
+  const hadFocus = document.activeElement === button;
   $("mc-results").setAttribute("aria-busy", "true");
   try {
-    await run();
+    await run(ticket);
   } finally {
-    if (ticket === launches) $("mc-results").setAttribute("aria-busy", "false");
+    if (ticket === launches) {
+      $("mc-results").setAttribute("aria-busy", "false");
+      if (hadFocus && document.activeElement === document.body) button.focus({ preventScroll: true }); // disabling it dropped focus
+    }
   }
 });
 
-async function run() {
+async function run(ticket) {
+  const seed = linkSeed; // read at once: a link's seed belongs to the run it started, not one already going
+  linkSeed = null;
   const portfolio = chosen();
   const ticker = $("mc-ticker").value.trim().toUpperCase();
   if (!portfolio && !/^[A-Z0-9.-]{1,12}$/.test(ticker)) {
@@ -169,7 +178,7 @@ async function run() {
   // The boxes' own rules (min, max, whole years) decide; an empty box counts as wrong.
   const wrong = Object.keys(NEEDS).find((id) => $(id).value === "" || !$(id).validity.valid);
   if (wrong) {
-    say(NEEDS[wrong], true);
+    say(NEEDS[wrong]((v) => formUnit.money.format(v)), true);
     return flagField($(wrong));
   }
   const startValue = Number($("mc-start").value);
@@ -190,7 +199,8 @@ async function run() {
   const link = linkPairs(portfolio);
   const holdings = portfolio ? portfolio.holdings.map((h) => h.ticker) : [ticker];
   const code = sharedCurrency(holdings);
-  ({ money, moneyFit, moneyCompact } = moneyIn(code));
+  const unit = moneyIn(code);
+  ({ money, moneyFit, moneyCompact } = unit);
   const word = currencyWord(code);
   const basis = inflation.real ? `Today's ${word}, adjusted for ${countryName(inflation.country)} inflation` : `Future ${word}, not adjusted for inflation`;
   const settings = describe({ name, startValue, annualWithdrawal, growth, rule, annualContribution, contributeMonthly, fee, years, runs, crisis, basis });
@@ -201,27 +211,31 @@ async function run() {
   button.disabled = true;
   $("mc-skeleton").hidden = !$("mc-results").hidden;
   say(`Loading ${name}…`);
-  let prices, spare;
+  let prices, spare, failure;
   try {
     const [loaded, loadedSpares] = await Promise.all([Promise.all(tickers.map(fetchPrices)), Promise.all(spares.map((t) => fetchPrices(t).catch(() => null)))]);
     prices = Object.fromEntries(tickers.map((t, i) => [t, loaded[i]]));
     spare = Object.fromEntries(spares.map((t, i) => [t, loadedSpares[i]]));
   } catch (error) {
-    $("mc-skeleton").hidden = true;
-    say(`${name} didn't load: ${error.message.replace(/\.$/, "")}.`, true);
-    if (error.retry !== false) tryAgain(status, () => form.requestSubmit()); // prices that did load are kept
+    failure = error;
+  }
+  if (ticket !== launches) return; // a newer run started while this one loaded
+  button.disabled = false;
+  // A run that can't go ahead takes the previous results away, so they aren't read as this setup's.
+  const refuse = (text) => {
+    $("mc-skeleton").hidden = $("mc-results").hidden = true;
+    say(text, true);
+  };
+  if (failure) {
+    refuse(`${name} didn't load: ${failure.message.replace(/\.$/, "")}.`);
+    if (failure.retry !== false) tryAgain(status, () => form.requestSubmit()); // prices that did load are kept
     return;
-  } finally {
-    button.disabled = false;
   }
 
   const points = portfolio ? portfolioSeries(portfolio, prices).points : prices[ticker];
   // Whole calendar months only: a part-month would count as a full month's return.
   const months = points.length > 2 ? periodReturns(points, 7).filter((m) => !m.partial) : [];
-  if (months.length < MIN_MONTHS) {
-    $("mc-skeleton").hidden = true;
-    return say(`${name} has under two years of history, which is too little to simulate from.`, true);
-  }
+  if (months.length < MIN_MONTHS) return refuse(`${name} has under two years of history, which is too little to simulate from.`);
   // Crisis tests (the table, and a crash at the start of every run) reach back before a young fund's first day through
   // its stand-ins, and say so wherever one is used. The simulation itself draws only on the real history above.
   const all = { ...spare, ...prices };
@@ -234,17 +248,13 @@ async function run() {
     missing: spares.filter((t) => !spare[t]),
   };
   const prefix = crisis ? crisisMonths(crisisPoints, crisis) : [];
-  if (!prefix) {
-    $("mc-skeleton").hidden = true;
-    return say(`${name} has no data for the whole ${lower(crisis.name)}: its history runs from ${longDate(crisisPoints[0].date)} to ${longDate(crisisPoints.at(-1).date)}. Pick another crisis or a random month.`, true);
-  }
+  if (!prefix) return refuse(`${name} has no data for the whole ${lower(crisis.name)}: its history runs from ${longDate(crisisPoints[0].date)} to ${longDate(crisisPoints.at(-1).date)}. Pick another crisis or a random month.`);
 
   // Comparisons rerun the same random draws with one thing changed, so the gap comes from that change, not from chance.
   const plan = { startValue, annualWithdrawal, growth, annualContribution, contributeMonthly, fee, rule };
   // With a run kept for comparison, its seed is reused, so both runs draw the same random months.
   // A share link's seed comes first, so whoever opens it gets the same random months as the sender.
-  const input = { ...plan, monthlyReturns: months.map((m) => m.value), years, runs, method, blockLength: BLOCK, prefix, seed: linkSeed ?? (pinned ? pinned.seed : (Math.random() * 2 ** 32) >>> 0) };
-  linkSeed = null;
+  const input = { ...plan, monthlyReturns: months.map((m) => m.value), years, runs, method, blockLength: BLOCK, prefix, seed: seed ?? (pinned ? pinned.seed : (Math.random() * 2 ** 32) >>> 0) };
   const guarded = rule === "guardrails";
   const extra = (crisis ? 1 : 0) + (fee > 0 ? 1 : 0) + (guarded ? 1 : 0);
   say(`Running ${runs.toLocaleString()} simulations${extra ? `, plus ${(runs * extra).toLocaleString()} more to compare` : ""}…`);
@@ -260,15 +270,16 @@ async function run() {
       guarded && simulateAway({ ...input, rule: "fixed" }),
     ]);
   } catch (error) {
-    return say(`The simulation failed: ${error.message}`, true);
-  } finally {
-    button.disabled = false;
-    $("mc-skeleton").hidden = true;
+    failure = error;
   }
+  if (ticket !== launches) return; // a newer run started while this one ran
+  button.disabled = false;
+  $("mc-skeleton").hidden = true;
+  if (failure) return refuse(`The simulation failed: ${failure.message}`);
   const { failureRate, bands, paths, ranOut } = result;
   say(priceWarnings(prices)); // anything odd in the prices behind the run
   // The same seed gives the same random months only with the same number of runs, way of drawing and history.
-  current = { settings, failureRate, bands, paths, startValue, seed: input.seed, draws: `${runs} ${method} ${months[0].period} ${months.length}`, link, history: [months[0].period, months.at(-1).period] };
+  current = { settings, failureRate, bands, paths, startValue, unit, seed: input.seed, draws: `${runs} ${method} ${months[0].period} ${months.length}`, link, history: [months[0].period, months.at(-1).period] };
   $("mc-examples").hidden = true; // the example card goes after the first run
   $("mc-share-status").replaceChildren();
   ranWith = ranFrom;
@@ -333,7 +344,7 @@ async function run() {
   checkStale(); // the form may have changed while this ran
   requestAnimationFrame(() => requestAnimationFrame(() => $("mc-gauge").classList.remove("start")));
   if (!window.echarts) return say("The chart library didn't load, so the charts are missing. Check your connection and reload.", true);
-  drawCone(current, pinned);
+  drawCone(current, kept());
   if (!$("mc-spending-block").hidden) drawSpending(result.spending, plan);
   drawTiming(ranOut, runs, years);
   drawRates(result, plan, runs, years);
@@ -403,19 +414,22 @@ function drawPin() {
     element(
       "tbody",
       row("Runs that ran out of money", rate.format(pinned.failureRate), rate.format(current.failureRate)),
-      row("Median ending balance", moneyFit.format(pinned.bands.p50.at(-1)), moneyFit.format(current.bands.p50.at(-1))),
+      row("Median ending balance", pinned.unit.moneyFit.format(pinned.bands.p50.at(-1)), current.unit.moneyFit.format(current.bands.p50.at(-1))), // each in its own run's currency
       ...changed.map(([now, then]) => row(now.label, then.value, now.value)),
     ),
   );
   const same = pinned.draws === current.draws;
-  $("mc-pin-hint").textContent = changed.length
+  const apart = kept() ? "" : " The two runs are in different currencies, so the kept run's lines aren't drawn on the chart.";
+  $("mc-pin-hint").textContent = (changed.length
     ? same
       ? "Below the two results are the settings that changed. Both runs used the same random months, so the gap comes from those changes, not from luck."
       : "Below the two results are the settings that changed. The number of runs, how months are drawn or the price history differs, so the two runs drew different random months and part of the gap is luck."
     : same
       ? "No setting here changed, and both runs used the same random months."
-      : "No setting here changed, but the price history behind the runs did, so they drew different random months and the gap is luck.";
+      : "No setting here changed, but the price history behind the runs did, so they drew different random months and the gap is luck.") + apart;
 }
+// The kept run to draw on the cone: only when it is in the same currency as the run on screen, so both share an axis.
+const kept = () => (pinned && pinned !== current && pinned.unit === current.unit ? pinned : null);
 // Only a run kept and then changed draws kept lines on the cone; keeping or letting go of a run removes them.
 function setPin(run) {
   const hadLines = Boolean(pinned) && pinned !== current;

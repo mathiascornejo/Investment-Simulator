@@ -1,7 +1,7 @@
 // Portfolio creator tab: edit and save portfolios, and show a profile of the saved one.
-import { fetchPrices, PROXY_URL, inflation, basisTag } from "./data.js";
+import { fetchPrices, PROXY_URL, inflation, basisTag, within } from "./data.js";
 import { summarize, correlation, windowOf, dailyReturns, totalReturn, cagr, volatility, maxDrawdown, withDeposits, xirr } from "./stats.js";
-import { REBALANCE_RULES, UNREADABLE_KEY, loadPortfolios, savePortfolios, portfolioSeries, portfolioIssue, readPortfolio, freeName, riskShares, effectiveHoldings, diversificationRatio } from "./portfolios.js";
+import { REBALANCE_RULES, UNREADABLE_KEY, loadPortfolios, savePortfolios, portfolioSeries, portfolioIssue, readPortfolio, restoredBefore, freeName, riskShares, effectiveHoldings, diversificationRatio } from "./portfolios.js";
 import { attachTickerSearch } from "./ticker-search.js";
 import { dropdown, liveField, flagField } from "./fields.js";
 import { pct, num, moneyIn, currencySymbol, longDate, show, element, download, downloadCsv } from "./format.js";
@@ -52,7 +52,9 @@ let editing = ""; // name of the saved portfolio in the form; "" while creating 
 let snapshot = ""; // the form as last loaded or saved, to tell when it has unsaved changes
 let treemap; // ECharts instance, created the first time a profile is shown
 let nameIds = 0; // numbers each holding row's name label
-let profileLoads = 0; // counts profile loads, so only the latest one un-fades the profile
+let profileLoads = 0; // counts profile loads: only the latest one draws (an older one can finish later) and un-fades it
+let profileSaid = false; // the status line holds a failed profile load's message, cleared once a load works
+let opened = 0; // counts edit() calls, so a save can tell whether the form still holds what it saved
 let depositPoints = null; // the shown profile's portfolio series, for the deposits figures
 let profiled = null; // the portfolio whose profile is shown or loading (saved, or opened from a link)
 let profileData = null; // its figures, for the CSV download
@@ -64,6 +66,7 @@ addEventListener("portfolios-changed", showEmpty);
 addEventListener("portfolios-changed", () => fillPicker()); // a save in another browser tab shows up here too
 
 function say(text, isError = false, node = status) {
+  if (node === status) profileSaid = false;
   node.textContent = text;
   if (isError) node.dataset.state = "error";
   else delete node.dataset.state;
@@ -186,6 +189,7 @@ function fillPicker() {
 
 // Puts a portfolio into the form: a saved one (with its profile), an unsaved one (a model), or none (a blank example).
 function edit(portfolio, saved = Boolean(portfolio)) {
+  opened++;
   editing = saved ? portfolio.name : "";
   profiled = null; // a profile still loading for what was in the form is dropped
   fillPicker();
@@ -236,9 +240,16 @@ function readForm(copy = false) {
     band: Number($("band").value),
     cost: Number($("trade-cost").value),
   };
-  const issue = portfolioIssue(portfolio);
+  // A box the browser can't read (a comma typed as the decimal point, say) reads as 0, and one breaking its own
+  // rules (below 0.01, not a whole number) can still pass the checks above, so the box's own verdict counts too.
+  const rows = [...$("holdings").children];
+  const badWeight = rows.findIndex((row) => !row.querySelectorAll("input")[1].validity.valid);
+  const issue = portfolioIssue(portfolio)
+    ?? (badWeight > -1 ? { message: "Every holding needs a weight from 0.01% to 100%.", field: "weight", holding: badWeight }
+    : portfolio.rebalance === "band" && !$("band").validity.valid ? { message: "Set the drift limit to a whole number from 1 to 50 percentage points.", field: "band" }
+    : !$("trade-cost").validity.valid ? { message: "Set the trading cost between 0% and 5%.", field: "cost" }
+    : null);
   if (issue) {
-    const rows = $("holdings").children;
     const inputs = (i) => rows[i].querySelectorAll("input"); // [ticker, weight]
     const input = {
       name: () => $("portfolio-name"),
@@ -301,6 +312,7 @@ async function save(button, copy = false) {
     return flagField(portfolio.input);
   }
   const original = editing; // before the wait: another portfolio may be opened meanwhile
+  const [before, openedBefore] = [formState(), opened]; // and the form may be edited
 
   // Loading the prices proves every ticker exists before anything is saved. Names missing from the rows are looked up meanwhile.
   const buttons = form.querySelectorAll("button[type=submit], #copy-portfolio");
@@ -328,6 +340,22 @@ async function save(button, copy = false) {
   portfolio.holdings.forEach((h, i) => { if (found[i]) h.name = found[i]; });
 
   if (!savePortfolios([...loadPortfolios().filter((p) => copy || p.name !== original), portfolio])) return say(REFUSED, true);
+  if (opened !== openedBefore || formState() !== before) {
+    // The form changed during the check: what was saved is the form as it was when the button was pressed, and
+    // what is in the form now stays there, unsaved (or, if another portfolio was opened, untouched).
+    const same = opened === openedBefore;
+    if (same && !copy) {
+      editing = portfolio.name;
+      snapshot = before;
+      $("delete-portfolio").hidden = $("copy-portfolio").hidden = false;
+      showProfile(portfolio);
+    }
+    fillPicker();
+    changed();
+    say(`${copy ? `Saved a copy as ${portfolio.name}` : `Saved ${portfolio.name}`} as the form was when you pressed the button.${same ? " Changes made since then aren't saved yet." : ""}`);
+    flashSaved(button);
+    return toast(`Saved ${portfolio.name}`, "Open in Backtester", () => addToCompare(portfolio.name));
+  }
   edit(portfolio);
   say(copy ? `Saved a copy as ${portfolio.name}. ${original} is unchanged.` : `Saved ${portfolio.name}. It is now available in the Backtester.`);
   flashSaved(button);
@@ -424,7 +452,7 @@ $("restore-file").addEventListener("change", async () => {
     const portfolio = readPortfolio(raw);
     if (typeof portfolio === "string") {
       skipped.push(`${String(raw?.name ?? "").trim() || "One without a name"}: ${portfolio}`);
-    } else if (saved.some((p) => JSON.stringify(readPortfolio(p)) === JSON.stringify(portfolio))) {
+    } else if (restoredBefore(saved, portfolio)) {
       already++; // restoring the same backup twice adds nothing
     } else {
       portfolio.name = freeName(portfolio.name, taken); // a clash becomes "Name (2)"
@@ -435,10 +463,14 @@ $("restore-file").addEventListener("change", async () => {
   if (added.length && !savePortfolios([...saved, ...added])) return say("Nothing was added: this browser didn't let the site store them. Its storage may be full or switched off.", true, backupStatus);
   fillPicker();
   const plural = (n) => `${n} portfolio${n === 1 ? "" : "s"}`;
+  const allKnown = !added.length && !skipped.length && already > 0;
   say(
     [
-      `Added ${plural(added.length)}${added.length ? `: ${added.map((p) => p.name).join(", ")}` : ""}.`,
-      already ? `${plural(already)} you already had ${already === 1 ? "was" : "were"} left as ${already === 1 ? "it was" : "they were"}.` : "",
+      added.length ? `Added ${plural(added.length)}: ${added.map((p) => p.name).join(", ")}.`
+        : !list.length ? "That file holds no portfolios."
+        : allKnown ? `Nothing new: you already have ${already === 1 ? "the portfolio" : `all ${already} portfolios`} in that file.`
+        : "Nothing new was added.",
+      already && !allKnown ? `${plural(already)} you already had ${already === 1 ? "was" : "were"} left as ${already === 1 ? "it was" : "they were"}.` : "",
       skipped.length ? `Skipped ${skipped.length}. ${skipped.join(" ")}` : "",
     ].filter(Boolean).join(" "),
     skipped.length > 0 && !added.length,
@@ -453,28 +485,36 @@ async function showProfile(portfolio) {
   const ticket = ++profileLoads;
   $("profile").setAttribute("aria-busy", "true");
   try {
-    await drawProfile(portfolio);
+    await drawProfile(portfolio, ticket);
   } finally {
     if (ticket === profileLoads) $("profile").setAttribute("aria-busy", "false");
   }
 }
 
-async function drawProfile(portfolio) {
+async function drawProfile(portfolio, ticket) {
   const asked = portfolio;
+  // Only the latest load draws: another portfolio may have been opened, or a setting changed, while this one loaded.
+  const latest = () => ticket === profileLoads && profiled === asked;
   const tickers = [...new Set([...portfolio.holdings.map((h) => h.ticker), BENCHMARK])];
-  let loaded, found, bill;
+  // The T-bill rate is for Sharpe. It holds the profile up a second at most: if it hasn't come by then, Sharpe uses 0%
+  // and the profile is drawn again when it does. If it fails, Sharpe uses 0% and the note above the figures says so.
+  const billLoad = fetchPrices(US_TBILL).catch(() => null);
+  let loaded, found;
   try {
-    // Names are looked up for holdings saved before names were kept (nameOf never fails). The T-bill rate is for
-    // Sharpe; if it fails, Sharpe uses 0% and the note above the figures says so.
-    [loaded, found, bill] = await Promise.all([Promise.all(tickers.map(fetchPrices)), Promise.all(portfolio.holdings.map((h) => h.name || nameOf(h.ticker))), fetchPrices(US_TBILL).catch(() => null)]);
+    // Names are looked up for holdings saved before names were kept (nameOf never fails).
+    [loaded, found] = await Promise.all([Promise.all(tickers.map(fetchPrices)), Promise.all(portfolio.holdings.map((h) => h.name || nameOf(h.ticker)))]);
   } catch (error) {
-    if (profiled !== asked) return;
+    if (!latest()) return;
     $("profile").hidden = true; // don't leave an older profile looking current
     say(`The profile couldn't be loaded: ${error.message}`, true);
-    if (error.retry !== false) tryAgain(status, () => showProfile(asked));
+    profileSaid = true;
+    if (error.retry !== false) tryAgain(status, () => { say("Loading the profile again…"); profileSaid = true; showProfile(asked); });
     return;
   }
-  if (profiled !== asked) return; // another portfolio was opened while this one loaded
+  const bill = await within(billLoad, 1000);
+  if (!latest()) return;
+  if (profileSaid) say(""); // an earlier failure's message is out of date now
+  if (bill === undefined) billLoad.then(() => { if (latest()) showProfile(asked); });
   portfolio = { ...portfolio, holdings: portfolio.holdings.map((h, i) => (found[i] ? { ...h, name: found[i] } : h)) };
   const prices = Object.fromEntries(tickers.map((t, i) => [t, loaded[i]]));
   const run = portfolioSeries(portfolio, prices);
@@ -504,16 +544,22 @@ async function drawProfile(portfolio) {
   // The measured period is limited by the holding with the shortest history.
   const newest = portfolio.holdings.reduce((a, b) => (prices[b.ticker][0].date > prices[a.ticker][0].date ? b : a));
   const benchmark = windowOf(prices[BENCHMARK], points[0].date, points.at(-1).date).points;
-  const benchmarkCovers = benchmark.length > 2 && benchmark[0].date <= points[0].date;
+  // SPY's own first date: the window's first day can be a day after the portfolio's when that is a US market holiday.
+  const benchmarkCovers = benchmark.length > 2 && prices[BENCHMARK][0].date <= points[0].date;
   $("profile-range").textContent =
     (portfolio.holdings.length > 1
       ? `Measured over the period every holding has data for. ${newest.ticker} has the shortest history.`
       : `Measured over ${newest.ticker}'s whole price history.`) +
     (benchmarkCovers ? "" : ` ${BENCHMARK} has no prices before ${longDate(prices[BENCHMARK][0].date)}, so its figures aren't shown.`) +
     currencyNotes(portfolio.holdings.map((h) => ({ label: h.ticker, tickers: [h.ticker] })), inflation.real, inflation.country).map((note) => ` ${note}`).join("");
-  const stats = summarize(points, prices[BENCHMARK], undefined, undefined, bill);
-  if (stats.riskFree === null) $("profile-range").textContent += ` US T-bill rates ${bill ? "don't cover this period" : "didn't load"}, so the Sharpe ratio uses a 0% risk-free rate.`;
-  drawFacts(stats, benchmarkCovers ? summarize(benchmark, prices[BENCHMARK], undefined, undefined, bill) : null);
+  // The only bill rate is in US dollars, so holdings priced in another currency take off 0%.
+  const stats = summarize(points, prices[BENCHMARK], undefined, undefined, code === "USD" ? bill : null);
+  if (stats.riskFree === null) {
+    $("profile-range").textContent += code !== "USD" ? " The holdings aren't all priced in US dollars, and the only bill rate here is for dollars, so the Sharpe ratio uses a 0% risk-free rate."
+      : bill === undefined ? " US T-bill rates are still loading, so the Sharpe ratio uses a 0% risk-free rate for now."
+      : ` US T-bill rates ${bill ? "don't cover this period" : "didn't load"}, so the Sharpe ratio uses a 0% risk-free rate.`;
+  }
+  drawFacts(stats, benchmarkCovers ? summarize(benchmark, prices[BENCHMARK], undefined, undefined, bill ?? null) : null);
   $("profile-trading").textContent = tradingNote(portfolio, run);
   const corr = drawCorrelation(colored, aligned, weights, returns);
   drawRules(portfolio, prices);
@@ -646,10 +692,10 @@ function drawDeposits() {
   facts.replaceChildren(
     row(
       "Money",
-      fact("Ending balance", d.final, unit.money),
-      fact("Paid in", d.paidIn, unit.money),
-      ...(d.takenOut ? [fact("Taken out", d.takenOut, unit.money)] : []),
-      fact("Gain", d.final + d.takenOut - d.paidIn, unit.money, null, true),
+      fact("Ending balance", d.final, unit.moneyFit), // moneyFit: short past a billion, so big amounts fit their tile
+      fact("Paid in", d.paidIn, unit.moneyFit),
+      ...(d.takenOut ? [fact("Taken out", d.takenOut, unit.moneyFit)] : []),
+      fact("Gain", d.final + d.takenOut - d.paidIn, unit.moneyFit, null, true),
     ),
     row("Return per year", fact("Time-weighted return", fund, pct, "The portfolio's", true), fact("Money-weighted return", yours, pct, "Yours", true)),
   );

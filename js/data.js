@@ -25,7 +25,9 @@ export function cashSeries(end = new Date(), start = "1990-01-01") {
 // Downloads are also saved in the browser (Cache API), so a reload or a later visit doesn't fetch them again.
 // A saved price series is reused while it holds the latest weekday close, counted from 22:00 UTC, and for 6 hours
 // after saving whatever it holds: the Worker keeps its own copy for 6 hours, so a download just after a close can
-// predate it, and holidays bring no new close. Inflation figures are reused for 24 hours, as the Worker does.
+// predate it, and holidays bring no new close. A copy saved before its last row's close is reused only for those
+// 6 hours: Yahoo's daily chart includes the day still trading, so that row can be an unfinished price, not a close.
+// Inflation figures are reused for 24 hours, as the Worker does.
 const STORE = "prices-v1";
 const HOUR = 36e5;
 // The date of the latest weekday close at or before `now` (ms), as "YYYY-MM-DD".
@@ -34,7 +36,10 @@ export function lastClose(now) {
   while (d.getUTCDay() % 6 === 0) d.setUTCDate(d.getUTCDate() - 1); // Saturday or Sunday: Friday's close
   return d.toISOString().slice(0, 10);
 }
-export const fresh = (rows, savedAt, now) => now - savedAt < 6 * HOUR || rows.at(-1).date >= lastClose(now);
+export const fresh = (rows, savedAt, now) => now - savedAt < 6 * HOUR || (rows.at(-1).date >= lastClose(now) && lastClose(savedAt) >= rows.at(-1).date);
+
+// Waits up to `ms` for a promise: its value, or undefined if it hasn't settled by then.
+export const within = (promise, ms) => Promise.race([promise, new Promise((resolve) => setTimeout(resolve, ms))]);
 
 // Saved copies not refreshed for 30 days are dropped. A copy in use is saved again after each close, so that is
 // within a weekend of its last use.
@@ -97,10 +102,11 @@ export function fetchCpi(country) {
 }
 
 export async function fetchPrices(ticker) {
+  const { real, country } = inflation; // as set now: a change while this loads starts a newer load of its own
   const nominal = await fetchNominal(ticker);
-  if (!inflation.real) return nominal;
+  if (!real) return nominal;
   let cpi;
-  try { cpi = await fetchCpi(inflation.country); } catch (error) { throw Object.assign(new Error("Couldn't load inflation data, so inflation-adjusted returns aren't available for that country. Turn the option off to see nominal returns."), { retry: error.retry }); }
+  try { cpi = await fetchCpi(country); } catch (error) { throw Object.assign(new Error("Couldn't load inflation data, so inflation-adjusted returns aren't available for that country. Turn the option off to see nominal returns."), { retry: error.retry }); }
   return deflate(nominal, cpi);
 }
 

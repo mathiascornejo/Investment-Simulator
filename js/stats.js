@@ -168,12 +168,18 @@ export function billReturns(points, bill) {
 // or null for a 0% rate.
 const excess = (returns, rf) => (rf ? returns.map((r, i) => r - rf[i]) : returns);
 
+// A line that never moved (cash) took no risk, so it has no reward for risk to measure. Without this, the bill's
+// calendar-day steps (three days' interest on a Monday) would be the only ups and downs left, and make up a big figure.
+const still = (returns) => !(volatility(returns) > 1e-6);
+
 export function sharpe(returns, rf = null) {
+  if (still(returns)) return NaN;
   const x = excess(returns, rf);
   return (mean(x) * TRADING_DAYS) / volatility(x);
 }
 
 export function sortino(returns, rf = null) {
+  if (still(returns)) return NaN;
   const x = excess(returns, rf);
   const downside = Math.sqrt(mean(x.map((r) => Math.min(r, 0) ** 2)) * TRADING_DAYS);
   return (mean(x) * TRADING_DAYS) / downside;
@@ -239,12 +245,15 @@ export function periodReturns(points, keyLength, nextDate) {
   return out;
 }
 
-// Is the gap between two lines more than luck? A 95% confidence range for the yearly return gap (A minus B),
+// Is the gap between two lines more than luck? A 95% confidence range for the yearly growth gap (A minus B),
 // from a paired t-test on the calendar months both have in full: 12 x (mean +/- t x sd / sqrt(months)) of the
-// monthly differences. It treats each month as independent. Takes periodReturns(points, 7) of each; null under 6 months.
+// monthly differences in compounded growth, ln(1 + return). These add up over time, so the gap's sign always says
+// which line grew more over those months; a plain average of returns can favour the bumpier one (+15% then -12%
+// averages +1.5% a month but grows only 0.6%). It treats each month as independent. Takes periodReturns(points, 7)
+// of each; null under 6 months.
 export function gapRange(monthsA, monthsB) {
-  const other = new Map(monthsB.filter((m) => !m.partial).map((m) => [m.period, m.value]));
-  const diffs = monthsA.filter((m) => !m.partial && other.has(m.period)).map((m) => m.value - other.get(m.period));
+  const other = new Map(monthsB.filter((m) => !m.partial).map((m) => [m.period, Math.log1p(m.value)]));
+  const diffs = monthsA.filter((m) => !m.partial && other.has(m.period)).map((m) => Math.log1p(m.value) - other.get(m.period));
   if (diffs.length < 6) return null;
   // Student's t for 95% two-sided, by the Cornish-Fisher expansion: within 0.2% of the printed table from 5 degrees of freedom up.
   const [z, df] = [1.959964, diffs.length - 1];

@@ -13,9 +13,9 @@ const DEFINITIONS = {
   "maximum drawdown": ["The biggest fall from a high point to a later low, before a new high.", "lowest (value ÷ previous peak) − 1"],
   "best year": ["The return in the best full calendar year inside the period.", null],
   "worst year": ["The return in the worst full calendar year inside the period.", null],
-  "sharpe ratio": ["Return earned per unit of volatility, after taking off what 3-month US Treasury bills paid on the same days (the risk-free rate). Higher means more reward for the ups and downs. If the bill rates can't be loaded, the risk-free rate is taken as 0% and the page says so.", "annualised mean (daily return − bill return) ÷ volatility of that difference"],
+  "sharpe ratio": ["Return earned per unit of volatility, after taking off what 3-month US Treasury bills paid on the same days (the risk-free rate). Higher means more reward for the ups and downs. A line that never moves, such as cash, has none: it took no risk. If the bill rates can't be loaded, or a line isn't priced in US dollars, the risk-free rate is taken as 0% and the page says so.", "annualised mean (daily return − bill return) ÷ volatility of that difference"],
   "sortino ratio": ["Like the Sharpe ratio, but only the downward swings count as risk. The bill return is taken off each day first, in the same way.", "annualised mean (daily return − bill return) ÷ downside deviation"],
-  "risk-free rate": ["What 3-month US Treasury bills paid on average over the period, as a yearly rate: the return you could have had with almost no risk. Sharpe and Sortino take it off before measuring the reward for risk. It comes from FRED's daily rate (DTB3), turned into the yield a buyer earns. Type USTBILL in a ticker box to compare against it.", "average daily bill return × 252"],
+  "risk-free rate": ["What 3-month US Treasury bills paid on average over the period, as a yearly rate: the return you could have had with almost no risk. Sharpe and Sortino take it off before measuring the reward for risk. It is a dollar rate, so lines priced in other currencies use 0% instead. It comes from FRED's daily rate (DTB3), turned into the yield a buyer earns. Type USTBILL in a ticker box to compare against it.", "average daily bill return × 252"],
   benchmark: ["What the lines are measured against. Beta, alpha, R-squared, tracking error and the information ratio all compare with it. It is SPY (the S&P 500) unless you pick another ticker or saved portfolio in the Backtester.", null],
   beta: ["How much it tends to move when {b} moves 1%. 1 means in step, 0.5 half as much, above 1 more.", "covariance with {b} ÷ variance of {b}"],
   alpha: ["The yearly return left over after allowing for how much it moves with {b} (its beta). Above 0 means it did better than its beta alone would predict. The risk-free rate is taken as 0%.", "(mean daily return − beta × mean daily return of {b}) × 252"],
@@ -80,7 +80,7 @@ function open(button, below = false) {
   pop.style.transformOrigin = `${at.left - left + 12}px ${up ? "100%" : "0"}`;
 }
 let pinned = null; // the word a tap opened
-const close = () => { pinned = null; if (pop.matches(":popover-open")) pop.hidePopover(); };
+const close = () => { pinned = null; if ("hidePopover" in pop && pop.matches(":popover-open")) pop.hidePopover(); }; // older browsers have no popovers
 
 // Static headings in index.html carry data-term already; give them the same treatment.
 for (const node of document.querySelectorAll("[data-term]:not(button)")) {

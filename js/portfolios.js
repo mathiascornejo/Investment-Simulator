@@ -22,9 +22,10 @@ export function loadPortfolios() {
     const list = JSON.parse(raw) ?? [];
     if (Array.isArray(list)) return list;
   } catch {} // storage blocked, or not JSON
-  // shortcut: only the first unreadable copy is kept; a second, different one is treated as empty without a copy.
+  // Each different unreadable copy is added to the kept one (a blank line apart), so a second one is never lost.
   try {
-    if (raw !== null && localStorage.getItem(UNREADABLE_KEY) === null) localStorage.setItem(UNREADABLE_KEY, raw);
+    const kept = localStorage.getItem(UNREADABLE_KEY);
+    if (raw !== null && !kept?.includes(raw)) localStorage.setItem(UNREADABLE_KEY, kept === null ? raw : `${kept}\n\n${raw}`);
   } catch {}
   return [];
 }
@@ -91,6 +92,18 @@ export function freeName(name, taken, tag = "") {
     const candidate = fit(` (${tag ? `${tag} ` : ""}${n})`);
     if (!taken.includes(candidate)) return candidate;
   }
+}
+
+// Whether `saved` already holds this portfolio from a backup: the same contents under its name, or under the
+// "Name (2)" a name clash gave it on an earlier restore (shortened as freeName shortens it), so restoring the same
+// file twice adds nothing.
+export function restoredBefore(saved, portfolio) {
+  const contents = (p) => JSON.stringify({ ...readPortfolio(p), name: "" });
+  const named = (name) => {
+    const m = name.match(/^(.*)( \(\d+\))$/);
+    return name === portfolio.name || (m && (m[1] === portfolio.name || (portfolio.name.length + m[2].length > 40 && portfolio.name.startsWith(m[1]))));
+  };
+  return saved.some((p) => named(p.name) && contents(p) === contents(portfolio));
 }
 
 const periodKey = {

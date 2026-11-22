@@ -113,7 +113,7 @@ export default {
       if (body === null) {
         body = await (code === "US" ? cpiUs() : cpiWorldBank(code)).catch(() => null);
         if (body === null) return json({ error: `No inflation data for ${code}` }, 502, cors);
-        ctx.waitUntil(env.CACHE.put(key, body, { expirationTtl: 24 * TTL_SECONDS }));
+        ctx.waitUntil(env.CACHE.put(key, body, { expirationTtl: 24 * 60 * 60 })); // 24 hours: a new monthly reading shows up within a day
       }
       return new Response(body, { headers: { "Content-Type": "application/json", ...cors } });
     }

@@ -23,6 +23,17 @@ test("fresh: a saved copy lasts until the next close, or 6 hours after saving", 
   assert.equal(fresh(thursday, savedFriday, at("2026-11-21T05:30:00Z")), false); // then ask again
 });
 
+test("fresh: a copy saved while its last day was still trading lasts only 6 hours", () => {
+  const wednesday = [{ date: "2026-11-25", adjClose: 1 }]; // London at 10:00 UTC: Wednesday's price so far
+  const midSession = at("2026-11-25T10:00:00Z");
+  assert.equal(fresh(wednesday, midSession, at("2026-11-25T15:59:00Z")), true); // within 6 hours
+  assert.equal(fresh(wednesday, midSession, at("2026-11-25T23:00:00Z")), false); // not kept as Wednesday's close
+  assert.equal(fresh(wednesday, midSession, at("2026-11-26T12:00:00Z")), false);
+  const afterClose = at("2026-11-25T22:30:00Z"); // saved once Wednesday's close was in
+  assert.equal(fresh(wednesday, afterClose, at("2026-11-26T12:00:00Z")), true);
+  assert.equal(fresh(wednesday, afterClose, at("2026-11-26T22:30:00Z")), false); // Thursday's close has passed
+});
+
 test("cashSeries: weekdays only, from the given start", () => {
   const days = cashSeries(new Date("2026-11-24"), "2026-11-20").map((p) => p.date);
   assert.deepEqual(days, ["2026-11-20", "2026-11-23", "2026-11-24"]);

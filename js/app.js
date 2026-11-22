@@ -70,7 +70,8 @@ try {
   // The country box and its "i" show only while the switch is on.
   const showControls = (on) => {
     country.hidden = info.hidden = !on;
-    if (!on && note.matches(":popover-open")) note.hidePopover();
+    // Browsers without popovers (Safari before 17) would throw on the selector and stop every tab loading.
+    if (!on && "hidePopover" in note && note.matches(":popover-open")) note.hidePopover();
   };
   const changed = () => dispatchEvent(new Event("inflation-changed"));
   real.checked = inflation.real;

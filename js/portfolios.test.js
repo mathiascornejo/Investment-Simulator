@@ -1,7 +1,7 @@
 // Run with: node --test js/portfolios.test.js
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { portfolioSeries, freeName, readPortfolio, portfolioIssue, riskShares, effectiveHoldings, diversificationRatio } from "./portfolios.js";
+import { portfolioSeries, freeName, readPortfolio, restoredBefore, portfolioIssue, riskShares, effectiveHoldings, diversificationRatio } from "./portfolios.js";
 
 const series = (pairs) => pairs.map(([date, adjClose]) => ({ date, adjClose }));
 const values = (out) => out.points.map((p) => +p.adjClose.toFixed(6));
@@ -145,4 +145,29 @@ test("a problem names the part at fault, so the form can point at its box", () =
   assert.equal(portfolioIssue(p([{ ticker: "SPY", weight: 60 }, { ticker: "BND", weight: 30 }])).field, "total");
   assert.equal(portfolioIssue(p([{ ticker: "SPY", weight: 100 }], { name: "" })).field, "name");
   assert.equal(portfolioIssue(p([{ ticker: "SPY", weight: 100 }], { rebalance: "band", band: 0 })).field, "band");
+});
+
+test("restoredBefore: the same backup entry, under its name or the (2) a clash gave it", () => {
+  const growth = { name: "Growth", holdings: [{ ticker: "SPY", weight: 100 }], rebalance: "none", band: 5, cost: 0 };
+  const other = { ...growth, holdings: [{ ticker: "BND", weight: 100 }] };
+  assert.equal(restoredBefore([other], growth), false); // a different Growth: the first restore adds "Growth (2)"
+  assert.equal(restoredBefore([other, { ...growth, name: "Growth (2)" }], growth), true); // the second adds nothing
+  assert.equal(restoredBefore([growth], growth), true);
+  assert.equal(restoredBefore([{ ...growth, name: "Mine" }], growth), false); // same contents, another name: kept apart
+  const long = "y".repeat(40);
+  assert.equal(restoredBefore([{ ...growth, name: freeName(long, [long]) }], { ...growth, name: long }), true); // shortened
+});
+
+test("loadPortfolios keeps every different unreadable copy", async () => {
+  const store = new Map();
+  globalThis.localStorage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, String(v)), removeItem: (k) => store.delete(k) };
+  const { loadPortfolios, UNREADABLE_KEY } = await import("./portfolios.js");
+  store.set("portfolios", "{broken");
+  assert.deepEqual(loadPortfolios(), []);
+  loadPortfolios(); // read again: not copied twice
+  assert.equal(store.get(UNREADABLE_KEY), "{broken");
+  store.set("portfolios", "[oops");
+  loadPortfolios();
+  assert.equal(store.get(UNREADABLE_KEY), "{broken\n\n[oops");
+  delete globalThis.localStorage;
 });

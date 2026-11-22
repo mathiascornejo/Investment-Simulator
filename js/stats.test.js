@@ -126,9 +126,10 @@ test("percent axes get round, even steps and just enough decimals", () => {
 });
 
 test("gap range: paired t-test on the months both lines have in full", () => {
-  // A beats B by 3 points, then 1 point, month after month: mean 2 points, sample sd 1.0445 points, 12 months.
+  // A beats B by 3 points, then 1 point, month after month (in compounded growth, ln(1 + r)): mean 2 points,
+  // sample sd 1.0445 points, 12 months.
   const months = (values, partial = false) => values.map((value, i) => ({ period: `2020-${String(i + 1).padStart(2, "0")}`, value, partial }));
-  const a = months(Array.from({ length: 12 }, (_, i) => (i % 2 ? 0.01 : 0.03)));
+  const a = months(Array.from({ length: 12 }, (_, i) => Math.expm1(i % 2 ? 0.01 : 0.03)));
   const b = months(Array(12).fill(0));
   // 12 x (0.02 +/- 2.201 x 0.010445 / sqrt(12)), with t = 2.201 from the table for 11 degrees of freedom.
   const out = s.gapRange(a, b);
@@ -142,6 +143,20 @@ test("gap range: paired t-test on the months both lines have in full", () => {
   assert.equal(s.gapRange(a.slice(0, 5), b), null);
   // 6 months, 3 then 1 points: 12 x (0.02 +/- 2.571 x 0.010954 / sqrt(6)), t = 2.571 for 5 degrees of freedom.
   close(s.gapRange(a.slice(0, 6), b).low, 0.24 - 12 * 2.571 * 0.0109545 / Math.sqrt(6), 2e-4);
+  // A swings +15% / -12% for 60 months, B gains 1% a month. A's plain average is higher (+1.5% against +1%), but
+  // B grew more (12.7% a year against 7.4%), so the gap must favour B: 12 x ((ln 1.15 + ln 0.88) / 2 - ln 1.01).
+  const swing = s.gapRange(months(Array.from({ length: 60 }, (_, i) => (i % 2 ? -0.12 : 0.15))), months(Array(60).fill(0.01)));
+  close(swing.gap, 12 * ((Math.log(1.15) + Math.log(0.88)) / 2 - Math.log(1.01))); // -0.0478
+  assert.ok(swing.gap < 0);
+});
+
+test("Sharpe and Sortino: none for a line that never moved, whatever the bill did", () => {
+  // Cash earns 0 every day while the bill's Monday step is three days' interest: the old figure was about -28.
+  const cash = Array(20).fill(0);
+  const rf = Array.from({ length: 20 }, (_, i) => (i % 5 === 0 ? 3 : 1) * 0.05 / 365);
+  assert.ok(Number.isNaN(s.sharpe(cash, rf)));
+  assert.ok(Number.isNaN(s.sortino(cash, rf)));
+  assert.ok(Number.isNaN(s.sharpe(cash)));
 });
 
 test("drawdown episodes: high, low, depth and the date back at the high", () => {

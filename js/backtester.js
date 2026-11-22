@@ -1,6 +1,6 @@
 // Backtester tab: load tickers, pick a period, draw three charts and a statistics table.
 // All maths lives in stats.js; this file is fetching, state and drawing.
-import { fetchPrices, inflationNote, inflation, basisTag } from "./data.js";
+import { fetchPrices, inflationNote, inflation, basisTag, within } from "./data.js";
 import { attachTickerSearch } from "./ticker-search.js";
 import { windowOf, summarize, drawdowns, periodReturns, niceAxis, gapRange, drawdownEpisodes, rollingReturns, holdingPeriods, spread, correlation, moments, histogram, normalCdf } from "./stats.js";
 import { loadPortfolios, portfolioSeries } from "./portfolios.js";
@@ -16,8 +16,8 @@ import { linkFor, clearLink, linkedPortfolios, copyLink, offerSave, recipe, exam
 const DEFAULT_BENCHMARK = "SPY"; // what beta and the other relative figures compare with, unless the Benchmark box says otherwise
 const START_VALUE = 10000;
 const MAX_SERIES = 10; // one colour each; see COLORS
-// Fixed order, checked colour-blind safe on white. A colour belongs to a position in the
-// ticker list, so an asset keeps its colour when others fail to load.
+// Fixed order, checked colour-blind safe on white. A colour belongs to the line, never its place in the list
+// (see paint), so a line keeps its colour when others are removed or fail to load.
 export const COLORS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#7b5cc4", "#8c6239", "#22a6b8", "#5d6b7a", "#a8a22a"]; // shortcut: colours 6-10 not colour-blind validated
 const INK = "#1a1a1a";
 const MUTED = "#66665f";
@@ -43,7 +43,16 @@ export function addToCompare(label) {
   form.requestSubmit();
 }
 
-input.addEventListener("input", () => { input.value = input.value.replace(/[^A-Za-z0-9.\- ]/g, ""); }); // tickers and portfolio names only
+// Tickers and portfolio names only. A comma ends an entry and adds it, like picking a suggestion; checked on input,
+// not on the key, since phone keyboards don't always say which key was pressed. (Before the search's own listener,
+// so it searches only what is left.)
+input.addEventListener("input", () => {
+  const entries = input.value.replace(/[^A-Za-z0-9.\-, ]/g, "").split(",");
+  input.value = entries.pop().trimStart(); // the text after the last comma is still being typed
+  const ended = entries.map((t) => t.trim()).filter(Boolean);
+  for (const label of ended) if (!chips.some((c) => c.toUpperCase() === label.toUpperCase())) chips.push(label);
+  if (ended.length) form.requestSubmit();
+});
 attachTickerSearch(input, { extra: () => portfolios().map((p) => [p.name, "Saved portfolio"]), onPick: addToCompare });
 input.addEventListener("keydown", (event) => {
   if (event.key === "Backspace" && !input.value && chips.length) removeChip(chips.at(-1));
@@ -57,6 +66,13 @@ function removeChip(label) {
   say("");
 }
 
+// Each compared line keeps its colour while it stays; a new one takes the first colour no other line has.
+const colorOf = new Map(); // chip label -> colour
+function paint() {
+  for (const label of colorOf.keys()) if (!chips.includes(label)) colorOf.delete(label);
+  for (const label of chips) if (!colorOf.has(label)) colorOf.set(label, COLORS.find((c) => ![...colorOf.values()].includes(c)) ?? MUTED);
+}
+
 // Lines in different currencies (or none in dollars) show each one's currency beside its name.
 const showCodes = (labels) => sharedCurrency(labels.flatMap(tickersOf)) !== "USD";
 const codeTag = (label) => Object.assign(element("small", currencyLabel(tickersOf(label))), { className: "cur" });
@@ -64,12 +80,13 @@ const codeTag = (label) => Object.assign(element("small", currencyLabel(tickersO
 // One chip per compared line: colour, kind of asset, its currency when they differ, the change over the chosen period.
 function renderChips(windows = []) {
   input.placeholder = chips.length ? "" : "Add a ticker or portfolio"; // the hint only shows while the box is empty
+  paint();
   const codes = showCodes(chips);
   $("chips").replaceChildren(
-    ...chips.map((label, i) => {
+    ...chips.map((label) => {
       const w = windows.find((x) => x.label === label);
       const dot = Object.assign(element("span"), { className: "dot" });
-      dot.style.background = COLORS[i] ?? MUTED;
+      dot.style.background = colorOf.get(label);
       const isPortfolio = portfolios().some((p) => p.name === label);
       const remove = Object.assign(element("button", "✕"), { type: "button", title: `Remove ${label}` });
       remove.setAttribute("aria-label", `Remove ${label}`);
@@ -91,6 +108,7 @@ const state = {
   showBench: false, // draw it as a dashed grey line on the growth and drawdown charts
   bench: null, // { label, color, points } over the period on show, when it covers the whole period
   bill: null, // USTBILL's whole price history, for the risk-free rate in Sharpe and Sortino (null when it didn't load)
+  billLoading: false, // it hadn't come when the results were drawn: they use 0% until it does, then redraw
   min: "", // first date every asset has
   max: "", // last date every asset has
   start: "",
@@ -140,8 +158,8 @@ const statGroups = (name, benchWhy, rfWhy) => [
     ["Expected shortfall (95%)", "expectedShortfall", pct, 1, "Needs at least 24 full calendar months"],
   ]],
   ["Reward for the risk", [
-    ["Sharpe ratio", "sharpe", num, 1],
-    ["Sortino ratio", "sortino", num, 1],
+    ["Sharpe ratio", "sharpe", num, 1, "Needs a line that moves up and down"],
+    ["Sortino ratio", "sortino", num, 1, "Needs a line that moves up and down"],
     ["Risk-free rate (average)", "riskFree", pct, 0, rfWhy],
   ]],
   ["Compared with the benchmark", [
@@ -179,7 +197,7 @@ function applyPreset(months) {
 }
 
 // Loading
-let loads = 0; // counts loads, so only the latest one un-fades the results
+let loads = 0; // counts loads: only the latest one draws its results (an older one can finish later) and un-fades them
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   const keep = keepPeriod; // only the benchmark changed (benchChanged)
@@ -208,7 +226,7 @@ form.addEventListener("submit", async (event) => {
     return;
   }
   benchInput.value = benchAsked = bench.label;
-  // Portfolios first, then tickers. A line's colour comes from its position in this list.
+  // Portfolios first, then tickers. Each line's colour comes from paint(), not from this order.
   const lines = [
     ...picked.map((p) => ({ label: p.name, tickers: p.holdings.map((h) => h.ticker), portfolio: p })),
     ...tickers.map((t) => ({ label: t, tickers: [t] })),
@@ -222,18 +240,26 @@ form.addEventListener("submit", async (event) => {
   input.value = "";
   renderChips();
   const button = form.querySelector("button[type=submit]");
+  const hadFocus = document.activeElement === button;
   button.disabled = true;
   $("bt-skeleton").hidden = !$("results").hidden;
   const ticket = ++loads;
   $("results").setAttribute("aria-busy", "true"); // results already on screen fade until the new ones are drawn below
   say(`Loading ${lines.map((l) => l.label).join(", ")}…`);
   const wanted = [...new Set([...lines.flatMap((l) => l.tickers), ...bench.tickers])];
-  // The risk-free rate for Sharpe and Sortino; if it fails, they use 0% and the table says so.
-  const [loaded, bill] = await Promise.all([Promise.allSettled(wanted.map(fetchPrices)), fetchPrices(US_TBILL).catch(() => null)]);
-  state.bill = bill;
+  // The risk-free rate for Sharpe and Sortino. It holds the results up a second at most: if it hasn't come by then,
+  // they use 0% and are drawn again when it does. If it fails, they use 0% and the table says so.
+  const billLoad = fetchPrices(US_TBILL).catch(() => null);
+  const loaded = await Promise.allSettled(wanted.map(fetchPrices));
+  const bill = await within(billLoad, 1000);
+  if (ticket !== loads) return; // a newer Compare (or a setting change) started meanwhile: only its results are drawn
+  state.bill = bill ?? null;
+  state.billLoading = bill === undefined;
+  if (bill === undefined) billLoad.then((b) => { if (ticket === loads && !$("results").hidden) { Object.assign(state, { bill: b, billLoading: false }); draw(); } });
   button.disabled = false;
+  if (hadFocus && document.activeElement === document.body) button.focus({ preventScroll: true }); // disabling it dropped focus
   $("bt-skeleton").hidden = true;
-  if (ticket === loads) $("results").setAttribute("aria-busy", "false"); // a later load still running keeps it faded
+  $("results").setAttribute("aria-busy", "false");
   const prices = {};
   const errors = {};
   wanted.forEach((t, i) => {
@@ -249,12 +275,12 @@ form.addEventListener("submit", async (event) => {
 
   const problems = [];
   state.series = [];
-  lines.forEach((l, i) => {
+  lines.forEach((l) => {
     const missing = l.tickers.find((t) => !prices[t]);
     if (missing) return problems.push(`${l.label} didn't load: ${why(missing)}.`);
     const points = l.portfolio ? portfolioSeries(l.portfolio, prices).points : prices[l.label];
     if (points.length < 3) return problems.push(`${l.label} can't be measured: its holdings have no dates in common.`);
-    state.series.push({ label: l.label, color: COLORS[i], points, tickers: l.tickers });
+    state.series.push({ label: l.label, color: colorOf.get(l.label), points, tickers: l.tickers });
   });
   state.benchName = bench.label;
   state.benchmark = [];
@@ -506,11 +532,12 @@ function draw() {
 
   state.windows = windows;
   renderChips(windows);
-  const stats = windows.map((w) => summarize(w.points, state.bench ? state.benchmark : [], w.nextDate, START_VALUE, state.bill));
+  // The only bill rate is in US dollars, so a line priced in another currency takes off 0% (the data notes say so).
+  const stats = windows.map((w) => summarize(w.points, state.bench ? state.benchmark : [], w.nextDate, START_VALUE, inDollars(w.tickers) ? state.bill : null));
   state.stats = stats;
   drawTable(windows, stats);
   drawSummary(windows, stats);
-  drawGapNote(windows);
+  drawGapNote(windows, stats);
   drawHeatmap(windows);
   drawFalls(windows);
   drawCorrelation(windows);
@@ -534,6 +561,8 @@ function draw() {
   drawSpread(windows);
   drawScatter(windows, stats);
 }
+
+const inDollars = (tickers) => sharedCurrency(tickers) === "USD";
 
 // "the S&P 500 (SPY)" for the default benchmark, else its ticker or portfolio name.
 const benchTitle = (start = false) => (state.benchName === DEFAULT_BENCHMARK ? `${start ? "The" : "the"} S&P 500 (SPY)` : state.benchName);
@@ -575,7 +604,9 @@ function drawTable(windows, stats) {
   if (pair) columnHeads.push(Object.assign(element("th", "Gap"), { scope: "col", title: "How far ahead the better of the two is. The colour shows which one." }));
 
   const why = state.bench ? undefined : state.benchmark.length ? `${state.benchName} has ${benchGap()}` : `${state.benchName} didn't load`;
-  const rfWhy = `${state.bill ? `US T-bill rates start on ${longDate(state.bill[0].date)}` : "US T-bill rates didn't load"}, so Sharpe and Sortino use 0%`;
+  const rfWhy = !windows.some((w) => inDollars(w.tickers)) ? `${windows.length > 1 ? "These lines aren't" : "This line isn't"} priced in US dollars, and the only bill rate here is for dollars, so Sharpe and Sortino use 0%`
+    : state.billLoading ? "US T-bill rates are still loading, so Sharpe and Sortino use 0% for now"
+    : `${state.bill ? `US T-bill rates start on ${longDate(state.bill[0].date)}` : "US T-bill rates didn't load"}, so Sharpe and Sortino use 0%`;
   const groups = statGroups(state.benchName, why, rfWhy).map(([name, metrics]) => element(
     "tbody",
     Object.assign(element("tr", Object.assign(element("th", name), { scope: "rowgroup" }), Object.assign(element("td"), { colSpan: columns })), { className: "group" }),
@@ -634,6 +665,7 @@ function drawDataNotes(latestStarter) {
     if (tickers.includes(US_TBILL)) parts.push(`${US_TBILL} is built from the 3-month US Treasury bill rate (FRED, DTB3), earning it each day and ignoring price moves.`);
     if (raw.length) parts.push(`${listed(raw)} priced without dividends or splits, so returns understate what holders earned, and a split shows as a sudden fall.`);
     else if (tickers.some((t) => currencyOf(t) && !(t in TBILLS) && t !== US_TBILL)) parts.push("Dividends are reinvested.");
+    if (!inDollars(tickers)) parts.push("Its Sharpe and Sortino ratios use a 0% risk-free rate, because the only bill rate here is for US dollars.");
     return element("li", swatch(s.color), element("strong", s.label), `: ${parts.join(" ")}`);
   });
   if (state.series.some((s) => s.points[0].date < state.min)) {
@@ -801,6 +833,31 @@ function growthLead(windows) {
   return `${at(top)} ended highest, at ${fit(top)}, and ${at(bottom)} lowest, at ${fit(bottom)}.`;
 }
 
+// Where the dashed start line's caption goes: its end, start or middle, above or below the line, wherever the fewest
+// points of the lines fall under the text (BND hovering near $10,000 would otherwise run through it). Ties keep the end.
+function startSpot(lines, grid, caption) {
+  const f = state.log ? Math.log : (v) => v;
+  let [lo, hi, t0, t1] = [f(START_VALUE), f(START_VALUE), Infinity, -Infinity];
+  for (const line of lines) for (const [t, v] of line) [lo, hi, t0, t1] = [Math.min(lo, f(v)), Math.max(hi, f(v)), Math.min(t0, t), Math.max(t1, t)];
+  const [width, height] = [charts.growth.getWidth() - grid.left - grid.right, charts.growth.getHeight() - grid.top - grid.bottom];
+  const w = (textWidth(caption, 11) + 12) / width; // the caption's share of the chart's width
+  const h = (24 / height) * (hi - lo); // its height and gap, in the axis's units
+  const y = f(START_VALUE);
+  const spots = ["End", "Start", "Middle"].flatMap((at) => {
+    const x0 = { End: 1 - w, Start: 0, Middle: 0.5 - w / 2 }[at];
+    return [[`inside${at}Top`, x0, y, y + h], [`inside${at}Bottom`, x0, y - h, y]];
+  });
+  const hits = spots.map(([, x0, y0, y1]) => {
+    let n = 0;
+    for (const line of lines) for (const [t, v] of line) {
+      const x = (t - t0) / (t1 - t0 || 1);
+      if (x >= x0 && x <= x0 + w && f(v) > y0 && f(v) < y1) n++;
+    }
+    return n;
+  });
+  return spots[hits.indexOf(Math.min(...hits))][0];
+}
+
 function drawGrowth(windows, grid, bench) {
   $("growth-lead").textContent = growthLead(windows);
   const base = frame(longDate, unit.money);
@@ -817,11 +874,12 @@ function drawGrowth(windows, grid, bench) {
     const customValues = logTicks(min, max);
     yAxis = { ...base.yAxis, type: "log", min, max, axisTick: { show: false, customValues }, axisLabel: { ...axisLabel, customValues, hideOverlap: true } };
   }
+  const caption = `Start ${unit.money.format(START_VALUE)}`;
   const startLine = {
     silent: true,
     symbol: "none",
     lineStyle: { color: MUTED, type: "dashed", width: 1, opacity: 0.6 },
-    label: { position: "insideEndTop", formatter: `Start ${unit.money.format(START_VALUE)}`, color: MUTED, fontSize: 11 },
+    label: { position: startSpot(bench ? [...data, benchData] : data, grid, caption), formatter: caption, color: MUTED, fontSize: 11 },
     data: [{ yAxis: START_VALUE }],
   };
   charts.growth.setOption(
@@ -1019,7 +1077,7 @@ function drawRolling(windows) {
   for (const node of [$("rolling-chart"), $("rolling-range").parentElement]) node.hidden = !fits;
   if (!fits) {
     const since = windows.length > 1 ? "these lines' shared prices start" : "its prices start";
-    $("rolling-lead").textContent = `No ${years}-year stretch fits between ${longDate(first)}, when ${since}, and ${longDate(state.end)}. Pick fewer years.`;
+    $("rolling-lead").textContent = `No ${years}-year stretch fits between ${longDate(first)}, when ${since}, and ${longDate(state.end)}. ${years > 1 ? "Pick fewer years." : "Rolling returns need more than a year of prices."}`;
     $("rolling-note").textContent = "";
     return;
   }
@@ -1093,7 +1151,7 @@ function drawSummary(windows, stats) {
 }
 
 // Two lines: is the gap between their returns more than luck? A 95% range from a paired t-test (gapRange in stats.js).
-function drawGapNote(windows) {
+function drawGapNote(windows, stats) {
   const note = $("gap-note");
   note.hidden = windows.length !== 2;
   if (note.hidden) return;
@@ -1108,11 +1166,19 @@ function drawGapNote(windows) {
   const range = low > 0
     ? `between ${pts(low)} and ${pts(high)} a year in ${lead.label}'s favour. That range stays clear of zero, so the gap is unlikely to be luck alone.`
     : `anywhere from ${lag.label} ahead by ${pts(low)} to ${lead.label} ahead by ${pts(high)} a year. That range includes no gap at all, so this history is too short to tell whether one truly beats the other.`;
+  // It uses full calendar months only, so it can disagree with the headline figures, which use every day.
+  const key = stats.every((s) => s.cagr !== null) ? "cagr" : "totalReturn";
+  const [x, y] = stats.map((s) => s[key]);
+  const headlineLead = pct.format(x) === pct.format(y) ? null : x > y ? a : b;
+  const why = headlineLead && headlineLead !== lead
+    ? `The figures above put ${headlineLead.label} ahead because they count every day from ${longDate(state.start)} to ${longDate(state.end)}. This counts only the ${r.months} calendar months both lines have in full. `
+    : "";
   note.replaceChildren(
     title,
-    `Over ${r.months} full months, ${lead.label} returned ${pts(r.gap)} a year more than ${lag.label} on average. `,
+    `Over ${r.months} full months, ${lead.label} grew about ${pts(r.gap)} a year faster than ${lag.label}. `,
+    why,
     `With 95% confidence (a range that holds the true gap 19 times in 20), the true yearly gap lies ${range} `,
-    element("small", "Method: a paired t-test on monthly returns, which treats each month as independent of the others."),
+    element("small", "Method: a paired t-test on each month's growth, compounded so that a 10% gain and then a 10% fall count as the small loss they are. It treats each month as independent of the others."),
   );
 }
 
